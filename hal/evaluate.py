@@ -1,9 +1,13 @@
 """Command evaluation pipeline — normalize, tokenize, match."""
 
+from __future__ import annotations
+
 import fnmatch
 import os
 import re
 import shlex
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 # ── Flag expansion map ──────────────────────────────────────────────
 LONG_FLAG_MAP = {
@@ -151,7 +155,7 @@ def match_rule(tokens: list, flags: set, rule) -> bool:
     """
     if not tokens:
         return False
-    if tokens[0] != rule.command:
+    if rule.command is not None and tokens[0] != rule.command:
         return False
 
     all_tokens = set(tokens)
@@ -334,3 +338,141 @@ def sanitize(tokens: list) -> str:
             continue
         out.append(tok)
     return " ".join(out)
+
+
+# ── bd-2x0: Evaluation pipeline ──────────────────────────────────
+
+_SEVERITY_ORDER = {"info": 0, "low": 1, "medium": 2, "warn": 3, "high": 4, "block": 5}
+_MAX_DEPTH = 1  # max recursion for inline/heredoc extraction
+
+
+@dataclass
+class Decision:
+    """Result of evaluating a command."""
+    action: str = "allow"       # "allow" or "block"
+    rule_id: str = ""           # which rule matched
+    reason: str = ""            # human-readable explanation
+    severity: str = ""          # severity from the matching rule
+    command: str = ""           # the original command
+
+
+def evaluate(command: str, packs, config=None, _depth: int = 0) -> Decision:
+    """Evaluate a command against loaded packs and config.
+
+    Pipeline: config allow check -> split segments -> per-segment:
+      normalize -> tokenize -> keyword pre-filter -> match rules
+      (token-based first, regex fallback with sanitize) ->
+      inline/heredoc extraction (recurse once).
+    """
+    decision = Decision(command=command)
+
+    if not command or not command.strip():
+        return decision
+
+    # Config allow-list check
+    if config:
+        for allowed in config.allow:
+            if command.strip() == allowed or command.strip().startswith(allowed + " "):
+                return decision
+        for prefix in config.allow_prefixes:
+            if command.strip().startswith(prefix):
+                return decision
+
+    # Severity threshold
+    threshold = _SEVERITY_ORDER.get(
+        config.severity_threshold if config else "high", 4
+    )
+
+    # Split into segments and evaluate each
+    segments = split_segments(command)
+
+    for segment in segments:
+        seg_decision = _evaluate_segment(segment, packs, config, threshold, _depth)
+        if seg_decision.action == "block":
+            return seg_decision
+
+    return decision
+
+
+def _evaluate_segment(
+    segment: str, packs, config, threshold: int, depth: int
+) -> Decision:
+    """Evaluate a single command segment against packs."""
+    decision = Decision(command=segment)
+
+    # Tokenize (fail-open to str.split)
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        tokens = segment.split()
+
+    if not tokens:
+        return decision
+
+    # Normalize
+    tokens = normalize(list(tokens))
+    if not tokens:
+        return decision
+
+    flags = parse_flags(tokens)
+    cmd = tokens[0]
+
+    # Check each pack
+    for pack in packs:
+        # Keyword pre-filter: skip pack if command doesn't match any keyword
+        if pack.keywords and cmd not in pack.keywords:
+            continue
+
+        for rule in pack.rules:
+            # Skip rules below severity threshold
+            rule_sev = _SEVERITY_ORDER.get(rule.severity, 2)
+            if rule_sev < threshold:
+                continue
+
+            matched = False
+
+            # Token-based matching
+            if rule.command is not None or rule.has_all or rule.has_any or rule.flags_contain:
+                matched = match_rule(tokens, flags, rule)
+
+            # Regex fallback (if rule has a compiled pattern)
+            if not matched and rule.compiled:
+                sanitized = sanitize(tokens)
+                if rule.compiled.search(sanitized):
+                    matched = True
+                # Also try unsanitized for patterns that need raw content
+                if not matched and rule.compiled.search(segment):
+                    matched = True
+
+            if matched:
+                # Config allow_rules check
+                if config and rule.rule_id in (config.allow_rules or []):
+                    continue
+
+                return Decision(
+                    action="block",
+                    rule_id=rule.rule_id,
+                    reason=rule.reason or rule.name,
+                    severity=rule.severity,
+                    command=segment,
+                )
+
+    # Inline script extraction — recurse once
+    if depth < _MAX_DEPTH:
+        inline = extract_inline(tokens)
+        if inline:
+            sub = evaluate(inline, packs, config, _depth=depth + 1)
+            if sub.action == "block":
+                return sub
+
+        # Heredoc extraction — recurse once per body line
+        heredoc = extract_heredoc(segment)
+        if heredoc:
+            for line in heredoc.split("\n"):
+                line = line.strip()
+                if line:
+                    sub = evaluate(line, packs, config, _depth=depth + 1)
+                    if sub.action == "block":
+                        return sub
+
+    return decision

@@ -3,6 +3,8 @@
 import shlex
 
 from hal.evaluate import (
+    Decision,
+    evaluate,
     extract_heredoc,
     extract_inline,
     get_path_args,
@@ -12,7 +14,8 @@ from hal.evaluate import (
     sanitize,
     split_segments,
 )
-from hal.packs import Rule
+from hal.config import Config
+from hal.packs import Pack, Rule, load_packs
 
 
 # ── normalize ──────────────────────────────────────────────────────
@@ -266,3 +269,112 @@ class TestSanitize:
         result = sanitize(["curl", "-d", "payload", "https://example.com"])
         assert "payload" not in result
         assert "https://example.com" in result
+
+
+# ── bd-2x0: Evaluation pipeline tests ────────────────────────────
+
+class TestEvaluate:
+    def _git_pack(self):
+        """Minimal git pack for testing."""
+        return Pack(
+            id="core.git",
+            name="core.git",
+            keywords=["git"],
+            rules=[
+                Rule(
+                    name="push-force",
+                    command="git",
+                    has_all=["push"],
+                    flags_contain=["f"],
+                    unless=["--force-with-lease"],
+                    severity="block",
+                    rule_id="core.git:push-force",
+                    reason="git push --force can overwrite remote history",
+                ),
+                Rule(
+                    name="reset-hard",
+                    command="git",
+                    has_all=["reset"],
+                    flags_contain=["--hard"],
+                    severity="block",
+                    rule_id="core.git:reset-hard",
+                    reason="git reset --hard discards uncommitted changes",
+                ),
+            ],
+        )
+
+    def _rm_pack(self):
+        """Minimal filesystem pack for testing."""
+        return Pack(
+            id="core.fs",
+            name="core.fs",
+            keywords=["rm"],
+            rules=[
+                Rule(
+                    name="rm-rf",
+                    command="rm",
+                    has_all=["rm"],
+                    flags_contain=["r", "f"],
+                    severity="block",
+                    rule_id="core.fs:rm-rf",
+                    reason="rm -rf with both recursive and force flags",
+                ),
+            ],
+        )
+
+    def test_safe_command_allowed(self):
+        d = evaluate("git status", [self._git_pack()])
+        assert d.action == "allow"
+
+    def test_dangerous_command_blocked(self):
+        d = evaluate("git push --force", [self._git_pack()])
+        assert d.action == "block"
+        assert "push-force" in d.rule_id
+
+    def test_unless_exemption(self):
+        d = evaluate("git push --force-with-lease", [self._git_pack()])
+        assert d.action == "allow"
+
+    def test_empty_command(self):
+        d = evaluate("", [self._git_pack()])
+        assert d.action == "allow"
+
+    def test_chained_commands_blocked(self):
+        d = evaluate("echo hello && git push --force", [self._git_pack()])
+        assert d.action == "block"
+
+    def test_sudo_normalized(self):
+        d = evaluate("sudo git push --force", [self._git_pack()])
+        assert d.action == "block"
+
+    def test_rm_rf_blocked(self):
+        d = evaluate("rm -rf /", [self._rm_pack()])
+        assert d.action == "block"
+
+    def test_config_allow_list(self):
+        config = Config(allow=["git push --force"])
+        d = evaluate("git push --force", [self._git_pack()], config)
+        assert d.action == "allow"
+
+    def test_config_allow_rules(self):
+        config = Config(allow_rules=["core.git:push-force"])
+        d = evaluate("git push --force", [self._git_pack()], config)
+        assert d.action == "allow"
+
+    def test_config_allow_prefixes(self):
+        config = Config(allow_prefixes=["git push"])
+        d = evaluate("git push --force", [self._git_pack()], config)
+        assert d.action == "allow"
+
+    def test_inline_script_blocked(self):
+        d = evaluate("bash -c 'rm -rf /'", [self._rm_pack()])
+        assert d.action == "block"
+
+    def test_with_real_packs(self):
+        """Integration test with actual YAML packs."""
+        packs = load_packs()
+        d = evaluate("git push --force origin main", packs)
+        assert d.action == "block"
+
+        d2 = evaluate("git status", packs)
+        assert d2.action == "allow"
