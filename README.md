@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="hero.png" alt="HAL — Harmful Action Limiter" width="600">
+  <img src="hero.png" alt="HAL — Harmful Action Limiter" width="100%">
 </p>
 
 <h1 align="center">HAL — Harmful Action Limiter</h1>
