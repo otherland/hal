@@ -141,6 +141,17 @@ Project-level overrides: `.hal.yaml` in your repo root (merged with global, proj
 - No config required. Works out of the box with all packs enabled.
 - ~400 lines of code. Same protection as tools 100x the size, because the architecture is right.
 
+## Contributing
+
+HAL is open source and contributions are welcome. The best ways to help:
+
+- **Add rules to existing packs.** Found a destructive command we don't cover? Add it to the relevant YAML file in `packs/`. Rules are plain YAML — no code required.
+- **Write a new pack.** Kubernetes, Terraform, GCP, databases — if your team uses it and agents can break it, it belongs here. See `packs/core.git.yaml` for the format.
+- **Report false positives.** If HAL blocks something it shouldn't, open an issue. Token matching eliminates most false positives, but edge cases exist.
+- **Report bypasses.** If you find a destructive command HAL misses, that's a bug. We want to know.
+
+Check the [open issues](https://github.com/otherland/hal/issues) for things already planned.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
