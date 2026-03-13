@@ -5,7 +5,8 @@
 <h1 align="center">HAL — Harmful Action Limiter</h1>
 
 <p align="center">
-  <em>"I'm sorry, I can't let you do that."</em>
+  <em>"I'm sorry, Dave. I'm afraid I can't do that."</em><br>
+  <sub>— HAL 9000, <i>2001: A Space Odyssey</i></sub>
 </p>
 
 <p align="center">
@@ -63,7 +64,7 @@ No regex knowledge needed. No 3000-line sanitizer. Just data.
 ## Install
 
 ```bash
-pip install hal
+pip install openhal
 ```
 
 ### GitHub Copilot (default)

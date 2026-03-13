@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openhal"
+version = "0.1.0"
+description = "HAL — Harmful Action Limiter. Lean command guard for AI coding agents."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "Tom Yates" }]
+keywords = ["ai", "agent", "security", "guard", "copilot", "claude"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = ["pyyaml>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/otherland/hal"
+Repository = "https://github.com/otherland/hal"
+Issues = "https://github.com/otherland/hal/issues"
+
+[project.scripts]
+hal = "hal.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["hal*"]
+
+[tool.setuptools.package-data]
+hal = ["../packs/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
