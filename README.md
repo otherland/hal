@@ -37,17 +37,9 @@ HAL sits between the agent and your shell, catches the 1%, and costs you less th
 
 ## How It Works
 
-HAL uses **token-level matching** instead of regex. Commands are split with `shlex.split()` into token lists, then matched against declarative YAML rules. This means data inside quotes (like commit messages) never triggers false positives — no sanitizer needed.
+HAL runs as a hook inside your AI coding agent. Every time the agent tries to execute a shell command, HAL sees it first, checks it against a set of rules, and either allows it through or blocks it before it runs. The agent never touches your shell unsupervised.
 
-```
-"git commit -m 'fix rm -rf detection'"
-  → shlex.split → ["git", "commit", "-m", "fix rm -rf detection"]
-  → rule: command=git, has_all=[reset, --hard]
-  → "reset" not in tokens → NO MATCH
-  → The commit message is ONE opaque token. Never inspected.
-```
-
-Rules are readable by anyone:
+Rules are plain YAML — no regex, no code:
 
 ```yaml
 - name: push-force
@@ -59,7 +51,15 @@ Rules are readable by anyone:
   reason: "Rewrites remote history. Use --force-with-lease instead."
 ```
 
-No regex knowledge needed. No 3000-line sanitizer. Just data.
+Under the hood, HAL uses **token-level matching** rather than pattern-matching against raw command strings. Commands are split into structured tokens, so data inside quotes (like commit messages containing `rm -rf`) is never inspected — zero false positives, zero configuration.
+
+```
+"git commit -m 'fix rm -rf detection'"
+  → tokens: ["git", "commit", "-m", "fix rm -rf detection"]
+  → rule: command=git, has_all=[reset, --hard]
+  → "reset" not in tokens → ALLOWED
+  → The commit message is one opaque token. HAL never looks inside it.
+```
 
 ## Install
 
