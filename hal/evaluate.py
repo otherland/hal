@@ -180,14 +180,20 @@ def match_rule(tokens: list, flags: set, rule) -> bool:
     if rule.unless and any(t in combined for t in rule.unless):
         return False
 
-    # unless_path: glob patterns for allowed paths (reject paths with .. traversal)
+    # unless_path: glob patterns for allowed paths, or True for traversal-only check
     if rule.unless_path:
         path_args = get_path_args(tokens)
-        for pa in path_args:
-            if ".." in pa:
-                continue  # traversal — don't let unless_path save it
-            if any(fnmatch.fnmatch(pa, pat) for pat in rule.unless_path):
-                return False
+        if rule.unless_path is True or rule.unless_path == [True]:
+            # Boolean mode: just reject paths with '..' traversal
+            for pa in path_args:
+                if ".." in pa:
+                    return True  # traversal detected — match (block)
+        elif isinstance(rule.unless_path, list):
+            for pa in path_args:
+                if ".." in pa:
+                    continue  # traversal — don't let unless_path save it
+                if any(fnmatch.fnmatch(pa, pat) for pat in rule.unless_path):
+                    return False
 
     # path_is: at least one path argument must exactly match
     if rule.path_is:
