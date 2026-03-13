@@ -33,15 +33,15 @@ A single `git push --force` on the wrong branch doesn't care whether you meant t
 
 **This isn't a settings problem. It's a missing layer.**
 
-HAL sits between the agent and your shell. It catches the 1% and costs you less than a millisecond on every other command.
+HAL sits between the agent and your shell. It catches the 1% and costs less than a millisecond on every other command.
 
 ## Why not just use permissions?
 
 Your agent's permission system answers one question: "can this tool run?" Yes or no, per tool category. It can't tell `rm -rf ./tmp` from `rm -rf ./src`, or know that `--force` is dangerous but `--force-with-lease` is fine. It sees `Bash` and either asks you every time, or lets everything through.
 
-Copilot's hook system gives you the plumbing to do better — a JSON event for every command, and a way to return allow or deny. But it ships with no rules. If you don't install a hook, every command runs unchecked. You could write your own script, but you'd end up string-matching `rm -rf` and false-positive on every commit message that mentions it. Or you'd give up and turn it off.
+Copilot's hook system gives you the plumbing to do better. A JSON event for every command, a way to return allow or deny. But it ships with no rules. If you don't install a hook, every command runs unchecked. You could write your own script, but you'd end up string-matching `rm -rf` and false-positiving on every commit message that mentions it. Or you'd give up and turn it off.
 
-HAL is the hook. It ships the rules, handles the protocol, and parses commands structurally — not as strings. `git commit -m 'fix rm -rf bug'` doesn't trigger because the commit message is one opaque token that HAL never inspects. `--force` is blocked unless `--force-with-lease` is present. `rm -rf` is blocked unless the path is `/tmp` or `node_modules`. A flat string match can't express any of that.
+HAL is the hook. It ships the rules, handles the protocol, and parses commands structurally, not as strings. `git commit -m 'fix rm -rf bug'` doesn't trigger because the commit message is one opaque token that HAL never inspects. `--force` is blocked unless `--force-with-lease` is present. `rm -rf` is blocked unless the path is `/tmp` or `node_modules`. A flat string match can't express any of that.
 
 The alternative to HAL isn't a better deny list. It's no deny list.
 
@@ -49,7 +49,7 @@ The alternative to HAL isn't a better deny list. It's no deny list.
 
 HAL runs as a hook inside your AI coding agent. Every time the agent tries to execute a shell command, HAL sees it first, checks it against a set of rules, and either lets it through or blocks it. The agent never runs a command unsupervised.
 
-Rules are plain YAML, no regex, no code:
+Rules are plain YAML. No regex, no code:
 
 ```yaml
 - name: push-force
@@ -61,7 +61,7 @@ Rules are plain YAML, no regex, no code:
   reason: "Rewrites remote history. Use --force-with-lease instead."
 ```
 
-Under the hood, HAL uses token-level matching rather than pattern-matching against raw command strings. Commands are split into structured tokens, so data inside quotes (like commit messages containing `rm -rf`) is never inspected. No false positives, no configuration.
+HAL uses token-level matching rather than pattern-matching against raw command strings. Commands are split into structured tokens, so data inside quotes (like commit messages containing `rm -rf`) is never inspected.
 
 ```
 "git commit -m 'fix rm -rf detection'"
@@ -95,7 +95,7 @@ hal install --claude --project  # project-level (.claude/settings.json)
 ## Usage
 
 ```bash
-# Hook mode (default) — reads stdin JSON from agent, evaluates, responds
+# Hook mode (default): reads stdin JSON from agent, evaluates, responds
 hal
 
 # Test a command interactively
@@ -107,11 +107,11 @@ hal test "rm -rf node_modules"     # ALLOWED
 
 ## Packs
 
-HAL ships with five rule packs covering the most dangerous commands:
+HAL ships with five rule packs:
 
 | Pack | Covers |
 |------|--------|
-| `core.git` | `reset --hard`, `push --force`, `clean -f`, `stash clear`, `branch -D`, etc. |
+| `core.git` | `reset --hard`, `push --force`, `clean -f`, `stash clear`, `branch -D` |
 | `core.filesystem` | `rm -rf` (except safe paths like `/tmp`, `node_modules`), `chmod 777`, `chown -R` |
 | `containers.docker` | `system prune -a`, `volume prune`, `rm -f`, `stop $(docker ps)`, `compose down -v` |
 | `cloud.aws` | `s3 rm --recursive`, `ec2 terminate`, `rds delete`, `dynamodb delete-table`, `iam delete-*` |
@@ -135,22 +135,19 @@ Project-level overrides: `.hal.yaml` in your repo root (merged with global, proj
 
 ## Design principles
 
-- Fail-open everywhere. Any error defaults to ALLOW. HAL should never block legitimate work.
+- Fail-open everywhere. Any error defaults to ALLOW. HAL never blocks legitimate work.
 - Token-level matching. No regex needed for 90% of rules. Regex is an escape hatch, not the default.
 - Sub-millisecond. Pure Python, no network calls, no disk I/O beyond config load.
 - No config required. Works out of the box with all packs enabled.
-- ~400 lines of code. Same protection as tools 100x the size, because the architecture is right.
+- ~400 lines of code. Same protection as tools 100x the size.
 
 ## Contributing
 
-HAL is open source and contributions are welcome. The best ways to help:
+HAL is open source and we take contributions. If you find a destructive command we miss, that's a bug. If HAL blocks something it shouldn't, that's also a bug. Open an issue either way.
 
-- **Add rules to existing packs.** Found a destructive command we don't cover? Add it to the relevant YAML file in `packs/`. Rules are plain YAML — no code required.
-- **Write a new pack.** Kubernetes, Terraform, GCP, databases — if your team uses it and agents can break it, it belongs here. See `packs/core.git.yaml` for the format.
-- **Report false positives.** If HAL blocks something it shouldn't, open an issue. Token matching eliminates most false positives, but edge cases exist.
-- **Report bypasses.** If you find a destructive command HAL misses, that's a bug. We want to know.
+You can also add rules directly. They're YAML files in `packs/`, no code involved. New packs for Kubernetes, Terraform, GCP, databases, whatever your agents are running. See `packs/core.git.yaml` for the format.
 
-Check the [open issues](https://github.com/otherland/hal/issues) for things already planned.
+[Open issues](https://github.com/otherland/hal/issues) for what's already planned.
 
 ## License
 
