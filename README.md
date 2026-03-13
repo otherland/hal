@@ -19,7 +19,7 @@
 
 ---
 
-HAL 9000 couldn't be overridden. We considered that a design goal.
+HAL 9000 couldn't be overridden. Neither can this.
 
 ## The problem
 
