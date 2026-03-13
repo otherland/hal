@@ -1,6 +1,7 @@
 """Tests for hal.hook — Hook I/O protocol."""
 
 import json
+import sys
 
 from hal.hook import (
     CLAUDE,
@@ -98,3 +99,96 @@ class TestAskOutput:
 class TestAllowOutput:
     def test_allow_empty(self):
         assert allow_output() == ""
+
+
+# ── bd-3j5: End-to-end hook I/O tests ────────────────────────────
+
+import subprocess
+
+
+class TestEndToEndHook:
+    """Full round-trip: stdin JSON -> hal -> stdout."""
+
+    def _run_hal(self, input_json: dict) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "hal"],
+            input=json.dumps(input_json),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    def test_claude_deny_dangerous(self):
+        data = {"hookSpecificInput": {"command": "git push --force"}}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_claude_allow_safe(self):
+        data = {"hookSpecificInput": {"command": "git status"}}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        assert result.stdout.strip() == ""
+
+    def test_copilot_deny_dangerous(self):
+        data = {"toolInput": {"command": "rm -rf /"}}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert output["continue"] is False
+        assert output["permissionDecision"] == "deny"
+
+    def test_copilot_allow_safe(self):
+        data = {"toolInput": {"command": "ls -la"}}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        assert result.stdout.strip() == ""
+
+    def test_malformed_input_fail_open(self):
+        """Malformed JSON should fail-open (exit 0, no output)."""
+        result = subprocess.run(
+            [sys.executable, "-m", "hal"],
+            input="not valid json {{{",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+    def test_empty_input_fail_open(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "hal"],
+            input="",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+    def test_no_command_fail_open(self):
+        data = {"someOtherField": "value"}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        assert result.stdout.strip() == ""
+
+    def test_copilot_tool_args_string(self):
+        data = {"toolArgs": "git reset --hard HEAD"}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert output["continue"] is False
+
+    def test_claude_aws_blocked(self):
+        data = {"tool_input": {"command": "aws ec2 terminate-instances --instance-ids i-123"}}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        output = json.loads(result.stdout)
+        assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_non_bash_tool_passthrough(self):
+        """Input without a recognizable command should pass through."""
+        data = {"tool_input": {"code": "console.log('hello')"}}
+        result = self._run_hal(data)
+        assert result.returncode == 0
+        assert result.stdout.strip() == ""
