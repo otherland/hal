@@ -20,14 +20,21 @@ def main():
         test_p.add_argument("cmd", help="Command string to evaluate")
 
         # hal install
-        sub.add_parser("install", help="Install hooks for Copilot + Claude Code")
+        install_p = sub.add_parser("install", help="Install hooks for Copilot + Claude Code")
+        install_p.add_argument("--claude", action="store_true", help="Install Claude Code hook")
+        install_p.add_argument("--project", action="store_true", help="Use project-level settings (with --claude)")
+        install_p.add_argument("--no-configure", action="store_true", help="Only update binary path")
 
         args = parser.parse_args()
 
         if args.command == "test":
             _cmd_test(args.cmd)
         elif args.command == "install":
-            _cmd_install()
+            _cmd_install(
+                claude=args.claude,
+                project=args.project,
+                no_configure=args.no_configure,
+            )
         else:
             # Default: hook mode — read JSON from stdin, evaluate, respond
             _cmd_hook()
@@ -103,10 +110,77 @@ def _cmd_test(command: str):
         sys.exit(0)
 
 
-def _cmd_install():
-    """Install hooks for Copilot and Claude Code. (Placeholder)"""
-    print("hal install: not yet implemented", file=sys.stderr)
-    sys.exit(1)
+def _cmd_install(claude: bool = False, project: bool = False, no_configure: bool = False):
+    """Install hooks for Copilot and/or Claude Code."""
+    import json
+    import shutil
+    from pathlib import Path
+
+    hal_path = shutil.which("hal") or sys.executable + " -m hal"
+
+    if claude:
+        _install_claude(hal_path, project, no_configure)
+    else:
+        _install_copilot(hal_path, no_configure)
+
+
+def _install_claude(hal_path: str, project: bool, no_configure: bool):
+    """Install Claude Code hook into settings.json."""
+    import json
+    from pathlib import Path
+
+    if project:
+        settings_path = Path(".claude") / "settings.json"
+    else:
+        settings_path = Path.home() / ".claude" / "settings.json"
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load existing settings
+    settings = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            settings = {}
+
+    if not no_configure:
+        # Add/merge hook
+        hooks = settings.setdefault("hooks", {})
+        pre_tool = hooks.setdefault("PreToolUse", [])
+
+        # Check if hal hook already exists
+        hal_hook = {"type": "command", "command": hal_path}
+        existing = [h for h in pre_tool if isinstance(h, dict) and "hal" in h.get("command", "")]
+        if existing:
+            # Update existing
+            for h in existing:
+                h["command"] = hal_path
+        else:
+            pre_tool.append(hal_hook)
+
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    print(f"hal: installed Claude Code hook at {settings_path}")
+
+
+def _install_copilot(hal_path: str, no_configure: bool):
+    """Install Copilot hook into .github/hooks/."""
+    import json
+    from pathlib import Path
+
+    hooks_dir = Path(".github") / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_path = hooks_dir / "hal.json"
+
+    hook_config = {
+        "name": "hal",
+        "description": "HAL — Harmful Action Limiter",
+        "command": hal_path,
+        "events": ["pre-tool-use"],
+    }
+
+    hook_path.write_text(json.dumps(hook_config, indent=2) + "\n")
+    print(f"hal: installed Copilot hook at {hook_path}")
 
 
 if __name__ == "__main__":

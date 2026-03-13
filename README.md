@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#install">Install</a> &middot;
-  <a href="#how-it-works">How It Works</a> &middot;
+  <a href="#how-it-works">How it works</a> &middot;
   <a href="#packs">Packs</a> &middot;
   <a href="#configuration">Configuration</a> &middot;
   <a href="LICENSE">MIT License</a>
@@ -21,25 +21,33 @@
 
 HAL 9000 couldn't be overridden. We considered that a design goal.
 
-## The Problem
+## The problem
 
-Turning off autopilot isn't an option anymore. Agents are writing your code, running your tests, managing your infra — and that's not slowing down, it's accelerating. Every major IDE now ships an agent mode. Every serious team is adopting one.
+Turning off autopilot isn't an option anymore. Agents are writing your code, running your tests, managing your infra, and that's accelerating. Every major IDE ships an agent mode now. Every serious team is adopting one.
 
-The commands these agents run are correct 99% of the time, which is exactly what makes the 1% so dangerous — **you stop watching**.
+The commands these agents run are correct 99% of the time, which is exactly what makes the 1% so dangerous. **You stop watching.**
 
-You're not reviewing every `rm`, every `git reset`, every `terraform apply` across 40 parallel sessions. Nobody is. And the agent that nukes your working directory isn't malicious — it's just confidently wrong about one flag, one path, one assumption.
+You're not reviewing every `rm`, every `git reset`, every `terraform apply` across 40 parallel sessions. Nobody is. The agent that nukes your working directory isn't malicious. It's just confidently wrong about one flag, one path, one assumption.
 
 A single `git push --force` on the wrong branch doesn't care whether you meant to enable autopilot or not.
 
 **This isn't a settings problem. It's a missing layer.**
 
-HAL sits between the agent and your shell, catches the 1%, and costs you less than a millisecond on every other command.
+HAL sits between the agent and your shell. It catches the 1% and costs you less than a millisecond on every other command.
 
-## How It Works
+## "But my agent already has permissions"
 
-HAL runs as a hook inside your AI coding agent. Every time the agent tries to execute a shell command, HAL sees it first, checks it against a set of rules, and either allows it through or blocks it before it runs. The agent never touches your shell unsupervised.
+Your agent's permission system answers "should this tool be allowed to run?" Yes or no, per tool category. That's it. It doesn't answer "is this specific `git push` safe?" It can't tell `rm -rf ./tmp` from `rm -rf ./src`, or know that `--force` is dangerous but `--force-with-lease` is fine. It sees `Bash` and either asks you every time, or lets everything through.
 
-Rules are plain YAML — no regex, no code:
+That's fine for one developer, one session, manually approving each command. That's not the trajectory. The trajectory is autonomous loops, subagents, `dontAsk` mode, `bypassPermissions`. These features exist *because* clicking "approve" on every shell command doesn't scale.
+
+HAL doesn't replace the permission system, it sits inside it. The agent is allowed to run shell commands, but every command passes through a layer that actually understands what's destructive and what isn't. Token-level, under a millisecond. Permissions require you to be watching. HAL doesn't.
+
+## How it works
+
+HAL runs as a hook inside your AI coding agent. Every time the agent tries to execute a shell command, HAL sees it first, checks it against a set of rules, and either lets it through or blocks it. The agent never runs a command unsupervised.
+
+Rules are plain YAML, no regex, no code:
 
 ```yaml
 - name: push-force
@@ -51,7 +59,7 @@ Rules are plain YAML — no regex, no code:
   reason: "Rewrites remote history. Use --force-with-lease instead."
 ```
 
-Under the hood, HAL uses **token-level matching** rather than pattern-matching against raw command strings. Commands are split into structured tokens, so data inside quotes (like commit messages containing `rm -rf`) is never inspected — zero false positives, zero configuration.
+Under the hood, HAL uses token-level matching rather than pattern-matching against raw command strings. Commands are split into structured tokens, so data inside quotes (like commit messages containing `rm -rf`) is never inspected. No false positives, no configuration.
 
 ```
 "git commit -m 'fix rm -rf detection'"
@@ -107,7 +115,7 @@ HAL ships with five rule packs covering the most dangerous commands:
 | `cloud.aws` | `s3 rm --recursive`, `ec2 terminate`, `rds delete`, `dynamodb delete-table`, `iam delete-*` |
 | `cloud.azure` | `group delete`, `vm delete`, `storage account delete`, `aks delete`, `keyvault purge` |
 
-All packs enabled by default. Zero configuration required.
+All packs enabled by default. No configuration required.
 
 ## Configuration
 
@@ -123,13 +131,13 @@ severity_threshold: high # Block at this level and above
 
 Project-level overrides: `.hal.yaml` in your repo root (merged with global, project wins).
 
-## Design Principles
+## Design principles
 
-- **Fail-open everywhere** — any error defaults to ALLOW. HAL must never block legitimate work.
-- **Token-level matching** — no regex needed for 90% of rules. Regex is an escape hatch, not the default.
-- **Sub-millisecond** — pure Python, no network calls, no disk I/O beyond config load.
-- **Zero config** — works out of the box with all packs enabled.
-- **~400 LOC** — same protection as tools 100x the size, because the architecture is right.
+- Fail-open everywhere. Any error defaults to ALLOW. HAL should never block legitimate work.
+- Token-level matching. No regex needed for 90% of rules. Regex is an escape hatch, not the default.
+- Sub-millisecond. Pure Python, no network calls, no disk I/O beyond config load.
+- No config required. Works out of the box with all packs enabled.
+- ~400 lines of code. Same protection as tools 100x the size, because the architecture is right.
 
 ## License
 
