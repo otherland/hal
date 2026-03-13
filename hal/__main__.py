@@ -149,15 +149,25 @@ def _install_claude(hal_path: str, project: bool, no_configure: bool):
         hooks = settings.setdefault("hooks", {})
         pre_tool = hooks.setdefault("PreToolUse", [])
 
-        # Check if hal hook already exists
-        hal_hook = {"type": "command", "command": hal_path}
-        existing = [h for h in pre_tool if isinstance(h, dict) and "hal" in h.get("command", "")]
+        # Correct Claude Code structure: matcher + hooks array
+        hal_entry = {
+            "matcher": "Bash",
+            "hooks": [
+                {"type": "command", "command": hal_path}
+            ],
+        }
+
+        # Check if hal hook already exists (nested structure)
+        existing = [
+            h for h in pre_tool
+            if isinstance(h, dict)
+            and any("hal" in hook.get("command", "") for hook in h.get("hooks", []) if isinstance(hook, dict))
+        ]
         if existing:
-            # Update existing
             for h in existing:
-                h["command"] = hal_path
+                h["hooks"] = [{"type": "command", "command": hal_path}]
         else:
-            pre_tool.append(hal_hook)
+            pre_tool.append(hal_entry)
 
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     print(f"hal: installed Claude Code hook at {settings_path}")
