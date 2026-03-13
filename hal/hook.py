@@ -15,16 +15,16 @@ CLAUDE = "claude"
 
 def detect_protocol(data: dict) -> str:
     """Detect whether input is from Copilot or Claude Code."""
-    # Claude Code sends tool_input or hookSpecificInput
-    if "hookSpecificInput" in data or "tool_input" in data:
-        return CLAUDE
-    # Copilot sends toolInput or toolArgs
+    # Copilot sends event: "pre-tool-use" or toolName like "run_shell_command"
+    tool_name = data.get("toolName", "")
+    if data.get("event") == "pre-tool-use":
+        return COPILOT
+    if tool_name in ("run_shell_command", "run-shell-command"):
+        return COPILOT
     if "toolInput" in data or "toolArgs" in data:
         return COPILOT
-    # Fallback: check for common Claude patterns
-    if "event" in data and isinstance(data.get("event"), str):
-        return CLAUDE
-    return COPILOT
+    # Everything else is Claude Code
+    return CLAUDE
 
 
 def extract_command(data: dict) -> Optional[str]:
@@ -54,12 +54,15 @@ def extract_command(data: dict) -> Optional[str]:
     if isinstance(tool_input, dict):
         return tool_input.get("command") or tool_input.get("input")
 
-    # Copilot: toolArgs (dict with command)
+    # Copilot: toolArgs (dict with command, or JSON string)
     tool_args = data.get("toolArgs")
+    if isinstance(tool_args, str):
+        try:
+            tool_args = json.loads(tool_args)
+        except (json.JSONDecodeError, ValueError):
+            return tool_args
     if isinstance(tool_args, dict):
         return tool_args.get("command") or tool_args.get("input")
-    if isinstance(tool_args, str):
-        return tool_args
 
     return None
 
@@ -68,40 +71,42 @@ def extract_command(data: dict) -> Optional[str]:
 
 def deny_output(protocol: str, rule_id: str, reason: str) -> str:
     """Format a deny/block response for the given protocol."""
+    msg = f"BLOCKED [{rule_id}]: {reason}"
     if protocol == COPILOT:
         return json.dumps({
             "continue": False,
+            "stopReason": msg,
             "permissionDecision": "deny",
-            "rule": rule_id,
-            "message": reason,
+            "permissionDecisionReason": msg,
         })
     else:
         # Claude Code
         return json.dumps({
             "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "rule": rule_id,
-                "message": reason,
+                "permissionDecisionReason": msg,
             }
         })
 
 
 def ask_output(protocol: str, rule_id: str, reason: str) -> str:
     """Format a warn/ask response for the given protocol."""
+    msg = f"WARNING [{rule_id}]: {reason}"
     if protocol == COPILOT:
         return json.dumps({
             "continue": True,
+            "stopReason": msg,
             "permissionDecision": "ask",
-            "rule": rule_id,
-            "message": reason,
+            "permissionDecisionReason": msg,
         })
     else:
         # Claude Code
         return json.dumps({
             "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
                 "permissionDecision": "ask",
-                "rule": rule_id,
-                "message": reason,
+                "permissionDecisionReason": msg,
             }
         })
 
