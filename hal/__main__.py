@@ -183,10 +183,18 @@ def _install_copilot(hal_path: str, no_configure: bool):
     hook_path = hooks_dir / "hal.json"
 
     hook_config = {
-        "name": "hal",
-        "description": "HAL — Harmful Action Limiter",
-        "command": hal_path,
-        "events": ["pre-tool-use"],
+        "version": 1,
+        "hooks": {
+            "preToolUse": [
+                {
+                    "type": "command",
+                    "bash": hal_path,
+                    "powershell": hal_path,
+                    "cwd": ".",
+                    "timeoutSec": 30,
+                }
+            ],
+        },
     }
 
     hook_path.write_text(json.dumps(hook_config, indent=2) + "\n")
