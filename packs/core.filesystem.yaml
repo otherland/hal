@@ -7,7 +7,18 @@ rules:
     description: "rm -rf with both recursive and force flags"
     has_all: [rm]
     flags_contain: [-r, -f]
-    unless_path: true
+    unless_path:
+      - "node_modules"
+      - ".cache"
+      - "__pycache__"
+      - "target"
+      - "dist"
+      - "build"
+      - ".next"
+      - ".nuxt"
+      - "*.egg-info"
+      - "/tmp/*"
+      - "/var/tmp/*"
     severity: block
 
   - id: rm-root
