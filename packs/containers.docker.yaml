@@ -1,0 +1,52 @@
+name: containers.docker
+description: Guard against destructive Docker/container operations
+keywords: [docker, docker-compose, podman]
+
+rules:
+  - id: docker-system-prune-a
+    description: "docker system prune -a removes all unused data"
+    has_all: [docker, system, prune]
+    flags_contain: [-a]
+    severity: block
+
+  - id: docker-volume-prune
+    description: "docker volume prune removes all unused volumes"
+    has_all: [docker, volume, prune]
+    severity: block
+
+  - id: docker-rmi-all
+    description: "docker rmi with wildcard or $(docker images)"
+    has_all: [docker, rmi]
+    regex: "docker\\s+rmi.*\\$\\("
+    severity: block
+
+  - id: docker-rm-force
+    description: "docker rm -f force-removes containers"
+    has_all: [docker, rm]
+    flags_contain: [-f]
+    severity: warn
+
+  - id: docker-stop-all
+    description: "docker stop with $(docker ps) stops all containers"
+    has_all: [docker, stop]
+    regex: "docker\\s+stop.*\\$\\(docker\\s+ps"
+    severity: block
+
+  - id: docker-kill-all
+    description: "docker kill with $(docker ps) kills all containers"
+    has_all: [docker, kill]
+    regex: "docker\\s+kill.*\\$\\(docker\\s+ps"
+    severity: block
+
+  - id: compose-down-v
+    description: "docker compose down -v removes volumes"
+    has_any: [docker-compose, compose]
+    has_all: [down]
+    flags_contain: [-v]
+    severity: warn
+
+  - id: docker-swarm-leave-force
+    description: "docker swarm leave --force removes manager from swarm"
+    has_all: [docker, swarm, leave]
+    flags_contain: [--force]
+    severity: block

@@ -1,5 +1,6 @@
 """Command evaluation pipeline — normalize, tokenize, match."""
 
+import fnmatch
 import os
 import re
 import shlex
@@ -29,7 +30,7 @@ KNOWN_BINARIES = {
 
 # ── bd-1ol: Command normalizer ─────────────────────────────────────
 
-def normalize(tokens: list[str]) -> list[str]:
+def normalize(tokens: list) -> list:
     """Strip sudo, env, backslash prefixes, abs paths for known binaries.
 
     Iterates until stable so chained prefixes (sudo env git) collapse.
@@ -51,10 +52,9 @@ def normalize(tokens: list[str]) -> list[str]:
         if tokens[0] == "sudo":
             tokens = tokens[1:]
             changed = True
-            # consume sudo flags
             while tokens:
-                if tokens[0] == "-u" and len(tokens) > 1:
-                    tokens = tokens[2:]  # skip -u and username
+                if tokens[0] in ("-u", "-g") and len(tokens) > 1:
+                    tokens = tokens[2:]  # skip -u/-g and username/group
                 elif tokens[0].startswith("-") and tokens[0] != "--":
                     tokens = tokens[1:]
                 elif tokens[0] == "--":
@@ -88,8 +88,10 @@ def normalize(tokens: list[str]) -> list[str]:
                 break  # this is command -v lookup, leave it
             tokens = tokens[1:]
             changed = True
-            # consume command flags (e.g. -p)
-            while tokens and tokens[0].startswith("-") and tokens[0] != "--":
+            while tokens and tokens[0].startswith("-"):
+                if tokens[0] == "--":
+                    tokens = tokens[1:]
+                    break
                 tokens = tokens[1:]
             continue
 
@@ -106,23 +108,30 @@ def normalize(tokens: list[str]) -> list[str]:
 
 # ── bd-38v: Token matching engine ──────────────────────────────────
 
-def parse_flags(tokens: list[str]) -> set[str]:
-    """Extract all flags from tokens, expanding long flags to short equivalents."""
+def parse_flags(tokens: list) -> set:
+    """Extract all flags from tokens, expanding long→short and combined flags."""
     flags = set()
     for tok in tokens:
-        if tok.startswith("-") and tok != "-" and tok != "--":
-            flags.add(tok)
-            # Expand long flags
-            if tok in LONG_FLAG_MAP:
-                flags.update(LONG_FLAG_MAP[tok])
-            # Expand combined short flags: -rf → -r, -f
-            elif tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
-                for ch in tok[1:]:
-                    flags.add(f"-{ch}")
+        if not tok.startswith("-") or tok == "-" or tok == "--":
+            continue
+        flags.add(tok)
+        # Handle --flag=value: also register the base --flag
+        if tok.startswith("--") and "=" in tok:
+            base = tok.split("=")[0]
+            flags.add(base)
+            if base in LONG_FLAG_MAP:
+                flags.update(LONG_FLAG_MAP[base])
+        # Expand long flags to short equivalents
+        elif tok in LONG_FLAG_MAP:
+            flags.update(LONG_FLAG_MAP[tok])
+        # Expand combined short flags: -rf → -r, -f
+        elif not tok.startswith("--") and len(tok) > 2:
+            for ch in tok[1:]:
+                flags.add(f"-{ch}")
     return flags
 
 
-def get_path_args(tokens: list[str]) -> list[str]:
+def get_path_args(tokens: list) -> list:
     """Extract non-flag arguments that look like paths (after the command)."""
     paths = []
     for tok in tokens[1:]:  # skip command itself
@@ -134,64 +143,52 @@ def get_path_args(tokens: list[str]) -> list[str]:
     return paths
 
 
-def match_rule(rule: dict, tokens: list[str]) -> bool:
-    """Test whether a single rule matches the tokenized command.
+def match_rule(tokens: list, flags: set, rule) -> bool:
+    """Test whether a single token-based rule matches against tokens and flags.
 
-    Supported rule keys:
-      has_all:      list of tokens that must ALL appear
-      has_any:      list of tokens where at least ONE must appear
-      flags_contain: list of flags (short or long) that must ALL be present
-      unless:       list of tokens — if ANY appears, rule does NOT match
-      unless_path:  if true, reject paths with '..' (traversal detection)
-      path_is:      list of exact path values — at least one path arg must match
-      regex:        compiled regex pattern to test against joined command
+    Rule is a packs.Rule dataclass with attributes:
+      command, has_all, has_any, flags_contain, unless, unless_path, path_is
     """
     if not tokens:
         return False
+    if tokens[0] != rule.command:
+        return False
+
+    all_tokens = set(tokens)
+    combined = all_tokens | flags
 
     # has_all: every listed token must appear
-    if "has_all" in rule:
-        for required in rule["has_all"]:
-            if required not in tokens:
-                return False
+    if rule.has_all and not all(t in all_tokens for t in rule.has_all):
+        return False
 
-    # has_any: at least one listed token must appear
-    if "has_any" in rule:
-        if not any(t in tokens for t in rule["has_any"]):
-            return False
+    # has_any: at least one must appear (check combined for flag variants)
+    if rule.has_any and not any(t in combined for t in rule.has_any):
+        return False
 
-    # flags_contain: all listed flags must be present (with expansion)
-    if "flags_contain" in rule:
-        flags = parse_flags(tokens)
-        for required_flag in rule["flags_contain"]:
-            if required_flag not in flags:
-                # Check if the required flag is a short flag that might be in a combo
-                # parse_flags already expands combos, so just check
+    # flags_contain: individual flag chars that must all be present
+    if rule.flags_contain:
+        for fc in rule.flags_contain:
+            short = f"-{fc}" if len(fc) == 1 else fc
+            if short not in flags:
                 return False
 
     # unless: if any of these tokens appear, rule doesn't match
-    if "unless" in rule:
-        for excluded in rule["unless"]:
-            if excluded in tokens:
-                return False
+    if rule.unless and any(t in combined for t in rule.unless):
+        return False
 
-    # unless_path: reject if any path arg contains '..'
-    if rule.get("unless_path"):
-        paths = get_path_args(tokens)
-        for p in paths:
-            if ".." in p:
+    # unless_path: glob patterns for allowed paths (reject paths with .. traversal)
+    if rule.unless_path:
+        path_args = get_path_args(tokens)
+        for pa in path_args:
+            if ".." in pa:
+                continue  # traversal — don't let unless_path save it
+            if any(fnmatch.fnmatch(pa, pat) for pat in rule.unless_path):
                 return False
 
     # path_is: at least one path argument must exactly match
-    if "path_is" in rule:
-        paths = get_path_args(tokens)
-        if not any(p in rule["path_is"] for p in paths):
-            return False
-
-    # regex: compiled pattern must match the reconstructed command
-    if "regex" in rule:
-        cmd_str = " ".join(tokens)
-        if not rule["regex"].search(cmd_str):
+    if rule.path_is:
+        path_args = get_path_args(tokens)
+        if not any(pa == rule.path_is for pa in path_args):
             return False
 
     return True
@@ -199,49 +196,61 @@ def match_rule(rule: dict, tokens: list[str]) -> bool:
 
 # ── bd-3w5: Inline/heredoc extraction + segment splitting ──────────
 
-_INLINE_INTERPRETERS = {"bash", "sh", "zsh", "fish", "python", "python3", "ruby", "perl", "node"}
-_INLINE_FLAGS = {"-c", "-e"}
+INTERPRETERS = {"bash", "sh", "zsh", "fish", "python", "python3", "ruby", "perl", "node"}
+INLINE_FLAGS = {
+    "bash": "-c", "sh": "-c", "zsh": "-c", "fish": "-c",
+    "python": "-c", "python3": "-c",
+    "ruby": "-e", "perl": "-e", "node": "-e",
+}
 
 
-def extract_inline(tokens: list[str]) -> str | None:
+def extract_inline(tokens: list):
     """Detect `bash -c '...'`, `node -e '...'` etc. and return the inline script."""
-    for i, tok in enumerate(tokens):
-        basename = os.path.basename(tok) if "/" in tok else tok
-        if basename in _INLINE_INTERPRETERS:
-            # Look for -c or -e followed by the script
-            for j in range(i + 1, len(tokens)):
-                if tokens[j] in _INLINE_FLAGS and j + 1 < len(tokens):
-                    return tokens[j + 1]
-    return None
+    if len(tokens) < 3:
+        return None
+    cmd = os.path.basename(tokens[0]) if "/" in tokens[0] else tokens[0]
+    flag = INLINE_FLAGS.get(cmd)
+    if not flag:
+        return None
+    try:
+        idx = tokens.index(flag)
+        return tokens[idx + 1] if idx + 1 < len(tokens) else None
+    except ValueError:
+        return None
 
 
-def extract_heredoc(command: str) -> str | None:
-    """Detect heredocs piped to interpreters and return the body.
-
-    Handles patterns like:
-      cat <<EOF | bash
-      bash <<EOF
-      python3 << 'MARKER'
-    """
+def extract_heredoc(command: str):
+    """Detect heredocs piped to interpreters and return the body."""
     m = re.search(r"<<-?\s*['\"]?(\w+)['\"]?", command)
     if not m:
         return None
-    marker = m.group(1)
-    # Find the body between the marker lines
-    pattern = rf"<<-?\s*['\"]?{re.escape(marker)}['\"]?\s*\n(.*?)\n\s*{re.escape(marker)}\b"
-    body_match = re.search(pattern, command, re.DOTALL)
-    if body_match:
-        return body_match.group(1)
+    delim = m.group(1)
+    lines = command.split("\n")
+    body, capturing = [], False
+    for line in lines:
+        if capturing:
+            if line.strip() == delim:
+                break
+            body.append(line)
+        elif "<<" in line and delim in line:
+            capturing = True
+    if not body:
+        return None
+    # Only evaluate if piped to or invoked by an interpreter
+    before = command[:m.start()].strip().split()
+    if before and before[0] in INTERPRETERS:
+        return "\n".join(body)
+    if "|" in command:
+        targets = [s.strip().split()[0] for s in command.split("|")[1:] if s.strip()]
+        if any(t in INTERPRETERS for t in targets):
+            return "\n".join(body)
     return None
 
 
-def split_segments(command: str) -> list[str]:
-    """Split command on |, &&, ||, ; while respecting quotes.
-
-    Returns list of individual command strings.
-    """
+def split_segments(command: str) -> list:
+    """Split command on |, &&, ||, ; while respecting quotes."""
     segments = []
-    current: list[str] = []
+    current = []
     in_single = False
     in_double = False
     i = 0
@@ -270,7 +279,6 @@ def split_segments(command: str) -> list[str]:
 
         # Only split outside quotes
         if not in_single and not in_double:
-            # Check for ||, &&
             if ch in ("|", "&") and i + 1 < len(command) and command[i + 1] == ch:
                 seg = "".join(current).strip()
                 if seg:
@@ -278,7 +286,6 @@ def split_segments(command: str) -> list[str]:
                 current = []
                 i += 2
                 continue
-            # Check for single | (pipe) or ;
             if ch in ("|", ";"):
                 seg = "".join(current).strip()
                 if seg:
@@ -295,3 +302,35 @@ def split_segments(command: str) -> list[str]:
         segments.append(seg)
 
     return segments
+
+
+# ── Regex fallback sanitizer ────────────────────────────────────────
+
+ALL_ARGS_DATA = {"echo", "printf"}
+FLAG_DATA = {
+    "git": {"-m", "--message", "--grep"},
+    "grep": {"-e", "--regexp"}, "rg": {"-e", "--regexp"},
+    "curl": {"-d", "--data", "-H", "--header"},
+    "gh": {"-t", "--title", "-b", "--body"},
+}
+
+
+def sanitize(tokens: list) -> str:
+    """Mask data tokens for regex fallback rules."""
+    if not tokens:
+        return ""
+    cmd, out, skip = tokens[0], [], False
+    for i, tok in enumerate(tokens):
+        if skip:
+            skip = False
+            out.append("_" * len(tok))
+            continue
+        if i > 0 and cmd in ALL_ARGS_DATA and "$(" not in tok and "`" not in tok:
+            out.append("_" * len(tok))
+            continue
+        if cmd in FLAG_DATA and tok in FLAG_DATA[cmd]:
+            skip = True
+            out.append(tok)
+            continue
+        out.append(tok)
+    return " ".join(out)

@@ -1,0 +1,66 @@
+name: cloud.aws
+description: Guard against destructive AWS operations
+keywords: [aws]
+
+rules:
+  - id: aws-s3-rm-recursive
+    description: "aws s3 rm --recursive deletes all objects"
+    has_all: [aws, s3, rm]
+    flags_contain: [--recursive]
+    severity: block
+
+  - id: aws-s3-rb
+    description: "aws s3 rb removes a bucket"
+    has_all: [aws, s3, rb]
+    severity: block
+
+  - id: aws-ec2-terminate
+    description: "aws ec2 terminate-instances destroys instances"
+    has_all: [aws, ec2, terminate-instances]
+    severity: block
+
+  - id: aws-rds-delete
+    description: "aws rds delete-db-instance destroys a database"
+    has_all: [aws, rds, delete-db-instance]
+    unless: [--skip-final-snapshot]
+    severity: block
+
+  - id: aws-dynamodb-delete-table
+    description: "aws dynamodb delete-table destroys a table"
+    has_all: [aws, dynamodb, delete-table]
+    severity: block
+
+  - id: aws-lambda-delete
+    description: "aws lambda delete-function removes a function"
+    has_all: [aws, lambda, delete-function]
+    severity: warn
+
+  - id: aws-cfn-delete-stack
+    description: "aws cloudformation delete-stack destroys a stack"
+    has_all: [aws, cloudformation, delete-stack]
+    severity: block
+
+  - id: aws-iam-delete-user
+    description: "aws iam delete-user removes an IAM user"
+    has_all: [aws, iam, delete-user]
+    severity: block
+
+  - id: aws-iam-delete-role
+    description: "aws iam delete-role removes an IAM role"
+    has_all: [aws, iam, delete-role]
+    severity: block
+
+  - id: aws-iam-delete-policy
+    description: "aws iam delete-policy removes an IAM policy"
+    has_all: [aws, iam, delete-policy]
+    severity: block
+
+  - id: aws-route53-delete
+    description: "aws route53 delete-hosted-zone removes a DNS zone"
+    has_all: [aws, route53, delete-hosted-zone]
+    severity: block
+
+  - id: aws-eks-delete-cluster
+    description: "aws eks delete-cluster destroys a Kubernetes cluster"
+    has_all: [aws, eks, delete-cluster]
+    severity: block

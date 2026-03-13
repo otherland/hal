@@ -1,0 +1,74 @@
+name: cloud.azure
+description: Guard against destructive Azure operations
+keywords: [az]
+
+rules:
+  - id: az-group-delete
+    description: "az group delete destroys a resource group and all resources"
+    has_all: [az, group, delete]
+    severity: block
+
+  - id: az-vm-delete
+    description: "az vm delete destroys a virtual machine"
+    has_all: [az, vm, delete]
+    severity: block
+
+  - id: az-storage-account-delete
+    description: "az storage account delete removes a storage account"
+    has_all: [az, storage, account, delete]
+    severity: block
+
+  - id: az-sql-server-delete
+    description: "az sql server delete removes a SQL server"
+    has_all: [az, sql, server, delete]
+    severity: block
+
+  - id: az-sql-db-delete
+    description: "az sql db delete removes a SQL database"
+    has_all: [az, sql, db, delete]
+    severity: block
+
+  - id: az-aks-delete
+    description: "az aks delete destroys a Kubernetes cluster"
+    has_all: [az, aks, delete]
+    severity: block
+
+  - id: az-acr-delete
+    description: "az acr delete removes a container registry"
+    has_all: [az, acr, delete]
+    severity: block
+
+  - id: az-acr-repository-delete
+    description: "az acr repository delete removes a repository"
+    has_all: [az, acr, repository, delete]
+    severity: warn
+
+  - id: az-keyvault-delete
+    description: "az keyvault delete removes a key vault"
+    has_all: [az, keyvault, delete]
+    severity: block
+
+  - id: az-keyvault-purge
+    description: "az keyvault purge permanently destroys a soft-deleted vault"
+    has_all: [az, keyvault, purge]
+    severity: block
+
+  - id: az-network-vnet-delete
+    description: "az network vnet delete removes a virtual network"
+    has_all: [az, network, vnet, delete]
+    severity: block
+
+  - id: az-network-nsg-delete
+    description: "az network nsg delete removes a network security group"
+    has_all: [az, network, nsg, delete]
+    severity: block
+
+  - id: az-webapp-delete
+    description: "az webapp delete removes a web app"
+    has_all: [az, webapp, delete]
+    severity: warn
+
+  - id: az-functionapp-delete
+    description: "az functionapp delete removes a function app"
+    has_all: [az, functionapp, delete]
+    severity: warn

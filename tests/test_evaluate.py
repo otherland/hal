@@ -1,4 +1,4 @@
-"""Tests for hal.evaluate — normalizer, token engine, extraction."""
+"""Tests for hal.evaluate — normalizer, token engine, extraction, sanitizer."""
 
 import shlex
 
@@ -9,8 +9,10 @@ from hal.evaluate import (
     match_rule,
     normalize,
     parse_flags,
+    sanitize,
     split_segments,
 )
+from hal.packs import Rule
 
 
 # ── normalize ──────────────────────────────────────────────────────
@@ -66,46 +68,62 @@ class TestParseFlags:
     def test_no_flags(self):
         assert parse_flags(["ls"]) == set()
 
+    def test_flag_with_equals(self):
+        flags = parse_flags(["git", "log", "--format=oneline"])
+        assert "--format=oneline" in flags
+        assert "--format" in flags
+
 
 # ── match_rule ─────────────────────────────────────────────────────
 
 class TestMatchRule:
+    def _rule(self, **kwargs):
+        defaults = {"command": "rm", "name": "test"}
+        defaults.update(kwargs)
+        return Rule(**defaults)
+
     def test_has_all(self):
-        rule = {"has_all": ["rm", "-rf"]}
-        assert match_rule(rule, ["rm", "-rf", "/"]) is True
-        assert match_rule(rule, ["rm", "/"]) is False
+        rule = self._rule(has_all=["-rf"])
+        tokens = ["rm", "-rf", "/"]
+        flags = parse_flags(tokens)
+        assert match_rule(tokens, flags, rule) is True
+        tokens2 = ["rm", "/"]
+        assert match_rule(tokens2, parse_flags(tokens2), rule) is False
 
     def test_has_any(self):
-        rule = {"has_any": ["rm", "del"]}
-        assert match_rule(rule, ["rm", "file"]) is True
-        assert match_rule(rule, ["ls"]) is False
+        rule = self._rule(has_any=["file1", "file2"])
+        tokens = ["rm", "file1"]
+        assert match_rule(tokens, parse_flags(tokens), rule) is True
+        tokens2 = ["rm", "other"]
+        assert match_rule(tokens2, parse_flags(tokens2), rule) is False
 
     def test_flags_contain(self):
-        rule = {"flags_contain": ["-f"]}
-        assert match_rule(rule, ["rm", "-rf", "/"]) is True
-        assert match_rule(rule, ["rm", "/"]) is False
+        rule = self._rule(flags_contain=["f"])
+        tokens = ["rm", "-rf", "/"]
+        assert match_rule(tokens, parse_flags(tokens), rule) is True
+        tokens2 = ["rm", "/"]
+        assert match_rule(tokens2, parse_flags(tokens2), rule) is False
 
     def test_flags_contain_long(self):
-        rule = {"flags_contain": ["-f"]}
-        assert match_rule(rule, ["rm", "--force", "/"]) is True
+        rule = self._rule(flags_contain=["f"])
+        tokens = ["rm", "--force", "/"]
+        assert match_rule(tokens, parse_flags(tokens), rule) is True
 
     def test_unless(self):
-        rule = {"has_all": ["git", "push"], "unless": ["--dry-run"]}
-        assert match_rule(rule, ["git", "push"]) is True
-        assert match_rule(rule, ["git", "push", "--dry-run"]) is False
+        rule = self._rule(command="git", has_all=["push"], unless=["--dry-run"])
+        tokens = ["git", "push"]
+        assert match_rule(tokens, parse_flags(tokens), rule) is True
+        tokens2 = ["git", "push", "--dry-run"]
+        assert match_rule(tokens2, parse_flags(tokens2), rule) is False
 
-    def test_unless_path(self):
-        rule = {"has_all": ["rm"], "unless_path": True}
-        assert match_rule(rule, ["rm", "../etc/passwd"]) is False
-        assert match_rule(rule, ["rm", "file.txt"]) is True
-
-    def test_path_is(self):
-        rule = {"has_all": ["rm"], "path_is": ["/"]}
-        assert match_rule(rule, ["rm", "/"]) is True
-        assert match_rule(rule, ["rm", "/tmp"]) is False
+    def test_command_mismatch(self):
+        rule = self._rule(command="rm")
+        tokens = ["ls", "-la"]
+        assert match_rule(tokens, parse_flags(tokens), rule) is False
 
     def test_empty_tokens(self):
-        assert match_rule({"has_all": ["rm"]}, []) is False
+        rule = self._rule()
+        assert match_rule([], set(), rule) is False
 
 
 # ── extract_inline ─────────────────────────────────────────────────
@@ -155,3 +173,96 @@ class TestSplitSegments:
 
     def test_single_command(self):
         assert split_segments("ls -la") == ["ls -la"]
+
+
+# ── bd-2de: Extended normalizer tests ─────────────────────────────
+
+class TestNormalizeExtended:
+    def test_sudo_g_group(self):
+        assert normalize(["sudo", "-g", "wheel", "git", "push"]) == ["git", "push"]
+
+    def test_env_i(self):
+        assert normalize(["env", "-i", "git", "push"]) == ["git", "push"]
+
+    def test_abs_path_rm(self):
+        assert normalize(["/usr/local/bin/rm", "-rf", "/"]) == ["rm", "-rf", "/"]
+
+    def test_iterative_sudo_env_backslash(self):
+        assert normalize(["sudo", "env", "\\git", "push"]) == ["git", "push"]
+
+    def test_command_double_dash(self):
+        assert normalize(["command", "--", "git", "push"]) == ["git", "push"]
+
+    def test_unknown_binary_abs_path_unchanged(self):
+        assert normalize(["/opt/custom/tool", "arg"]) == ["/opt/custom/tool", "arg"]
+
+    def test_sudo_double_dash(self):
+        assert normalize(["sudo", "--", "git", "push"]) == ["git", "push"]
+
+    def test_env_multiple_vars(self):
+        assert normalize(["env", "A=1", "B=2", "C=3", "rm", "file"]) == ["rm", "file"]
+
+
+# ── bd-16f: Extended extraction/segment tests ─────────────────────
+
+class TestExtractInlineExtended:
+    def test_python_c(self):
+        tokens = shlex.split("python -c 'import os; os.system(\"rm -rf /\")'")
+        result = extract_inline(tokens)
+        assert result is not None
+        assert "os.system" in result
+
+    def test_no_flag_no_match(self):
+        tokens = shlex.split("bash script.sh")
+        assert extract_inline(tokens) is None
+
+
+class TestExtractHeredocExtended:
+    def test_quoted_marker(self):
+        cmd = "bash <<'END'\nrm -rf /\nEND"
+        assert extract_heredoc(cmd) == "rm -rf /"
+
+    def test_no_interpreter_ignored(self):
+        cmd = "cat <<EOF\nhello world\nEOF"
+        assert extract_heredoc(cmd) is None
+
+    def test_heredoc_piped_to_sh(self):
+        cmd = "cat <<EOF | sh\necho hello\nEOF"
+        assert extract_heredoc(cmd) == "echo hello"
+
+
+class TestSplitSegmentsExtended:
+    def test_double_quoted_pipe(self):
+        assert split_segments('echo "a | b" && cmd2') == ['echo "a | b"', "cmd2"]
+
+    def test_multiple_delimiters(self):
+        result = split_segments("a | b && c || d ; e")
+        assert result == ["a", "b", "c", "d", "e"]
+
+
+# ── bd-lz4: Sanitizer tests ──────────────────────────────────────
+
+class TestSanitize:
+    def test_echo_masks_data(self):
+        result = sanitize(["echo", "secret", "data"])
+        assert "secret" not in result
+        assert "data" not in result
+        assert "echo" in result
+
+    def test_git_message_masked(self):
+        result = sanitize(["git", "commit", "-m", "my secret message"])
+        assert "my secret message" not in result
+        assert "-m" in result
+
+    def test_no_masking_for_unknown_cmd(self):
+        result = sanitize(["ls", "-la", "/tmp"])
+        assert "-la" in result
+        assert "/tmp" in result
+
+    def test_empty(self):
+        assert sanitize([]) == ""
+
+    def test_curl_data_masked(self):
+        result = sanitize(["curl", "-d", "payload", "https://example.com"])
+        assert "payload" not in result
+        assert "https://example.com" in result

@@ -1,0 +1,67 @@
+name: core.git
+description: Guard against destructive Git operations
+keywords: [git]
+
+rules:
+  - id: git-reset-hard
+    description: "git reset --hard discards uncommitted changes"
+    has_all: [git, reset]
+    flags_contain: [--hard]
+    severity: block
+
+  - id: git-push-force
+    description: "git push --force can overwrite remote history"
+    has_all: [git, push]
+    flags_contain: [--force]
+    unless: [--force-with-lease]
+    severity: block
+
+  - id: git-clean-f
+    description: "git clean -f permanently deletes untracked files"
+    has_all: [git, clean]
+    flags_contain: [-f]
+    unless: [-n, --dry-run]
+    severity: block
+
+  - id: git-stash-clear
+    description: "git stash clear drops all stash entries"
+    has_all: [git, stash, clear]
+    severity: block
+
+  - id: git-stash-drop
+    description: "git stash drop removes a stash entry"
+    has_all: [git, stash, drop]
+    severity: warn
+
+  - id: git-branch-D
+    description: "git branch -D force-deletes a branch"
+    has_all: [git, branch]
+    flags_contain: [-D]
+    severity: warn
+
+  - id: git-checkout-discard
+    description: "git checkout -- discards working tree changes"
+    has_all: [git, checkout, --]
+    severity: warn
+
+  - id: git-restore-working
+    description: "git restore discards working tree changes (unless --staged)"
+    has_all: [git, restore]
+    unless: [--staged, -S]
+    severity: warn
+
+  - id: git-rebase-abort
+    description: "git rebase --abort discards rebase progress"
+    has_all: [git, rebase]
+    flags_contain: [--abort]
+    severity: warn
+
+  - id: git-reflog-expire
+    description: "git reflog expire removes reflog entries"
+    has_all: [git, reflog, expire]
+    severity: block
+
+  - id: git-reflog-delete
+    description: "git reflog delete removes specific reflog entries"
+    has_all: [git, reflog, delete]
+    severity: block

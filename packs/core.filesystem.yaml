@@ -1,0 +1,45 @@
+name: core.filesystem
+description: Guard against destructive filesystem operations
+keywords: [rm, chmod, chown, mkfs, dd]
+
+rules:
+  - id: rm-rf
+    description: "rm -rf with both recursive and force flags"
+    has_all: [rm]
+    flags_contain: [-r, -f]
+    unless_path: true
+    severity: block
+
+  - id: rm-root
+    description: "rm targeting root filesystem"
+    has_all: [rm]
+    path_is: ["/"]
+    severity: block
+
+  - id: chmod-777
+    description: "chmod 777 grants full access to everyone"
+    has_all: [chmod, "777"]
+    severity: block
+
+  - id: chmod-recursive
+    description: "chmod -R can change permissions on entire trees"
+    has_all: [chmod]
+    flags_contain: [-R]
+    severity: warn
+
+  - id: chown-recursive
+    description: "chown -R can change ownership on entire trees"
+    has_all: [chown]
+    flags_contain: [-R]
+    severity: warn
+
+  - id: mkfs
+    description: "mkfs creates a filesystem, destroying existing data"
+    has_all: [mkfs]
+    severity: block
+
+  - id: dd-of
+    description: "dd can overwrite devices and partitions"
+    has_all: [dd]
+    regex: "of=/dev/"
+    severity: block
