@@ -35,13 +35,15 @@ A single `git push --force` on the wrong branch doesn't care whether you meant t
 
 HAL sits between the agent and your shell. It catches the 1% and costs you less than a millisecond on every other command.
 
-## "But my agent already has permissions"
+## Why not just use permissions?
 
-Your agent's permission system answers "should this tool be allowed to run?" Yes or no, per tool category. That's it. It doesn't answer "is this specific `git push` safe?" It can't tell `rm -rf ./tmp` from `rm -rf ./src`, or know that `--force` is dangerous but `--force-with-lease` is fine. It sees `Bash` and either asks you every time, or lets everything through.
+Your agent's permission system answers one question: "can this tool run?" Yes or no, per tool category. It can't tell `rm -rf ./tmp` from `rm -rf ./src`, or know that `--force` is dangerous but `--force-with-lease` is fine. It sees `Bash` and either asks you every time, or lets everything through.
 
-That's fine for one developer, one session, manually approving each command. That's not the trajectory. The trajectory is autonomous loops, subagents, `dontAsk` mode, `bypassPermissions`. These features exist *because* clicking "approve" on every shell command doesn't scale.
+Copilot's hook system gives you the plumbing to do better — a JSON event for every command, and a way to return allow or deny. But it ships with no rules. If you don't install a hook, every command runs unchecked. You could write your own script, but you'd end up string-matching `rm -rf` and false-positive on every commit message that mentions it. Or you'd give up and turn it off.
 
-HAL doesn't replace the permission system, it sits inside it. The agent is allowed to run shell commands, but every command passes through a layer that actually understands what's destructive and what isn't. Token-level, under a millisecond. Permissions require you to be watching. HAL doesn't.
+HAL is the hook. It ships the rules, handles the protocol, and parses commands structurally — not as strings. `git commit -m 'fix rm -rf bug'` doesn't trigger because the commit message is one opaque token that HAL never inspects. `--force` is blocked unless `--force-with-lease` is present. `rm -rf` is blocked unless the path is `/tmp` or `node_modules`. A flat string match can't express any of that.
+
+The alternative to HAL isn't a better deny list. It's no deny list.
 
 ## How it works
 
