@@ -2,8 +2,22 @@
   "name": "openhal",
   "version": "0.1.0",
   "description": "HAL — Harmful Action Limiter (TypeScript implementation)",
-  "private": true,
+  "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/otherland/hal.git"
+  },
+  "homepage": "https://github.com/otherland/hal#readme",
+  "bugs": {
+    "url": "https://github.com/otherland/hal/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist/**/*.js",
     "packs/**/*.yaml",

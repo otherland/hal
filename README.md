@@ -81,6 +81,12 @@ Installation builds the TypeScript CLI and places the `hal` command on your
 `PATH`. The CLI reads the JSON hook protocol used by Copilot and Claude Code,
 loads the YAML packs from `packs/`, and fails open on invalid or empty input.
 
+Once published, install the package by name:
+
+```bash
+npm install -g openhal
+```
+
 ### Install into one repository
 
 Add HAL as a development dependency from a local checkout or Git reference:
