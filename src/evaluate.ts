@@ -25,11 +25,19 @@ const ORDER: Record<string, number> = {
 };
 export type Config = {
   packs: string[];
-  pack_dirs: string[];
+  packDirs?: string[];
   allow: string[];
-  allow_rules: string[];
-  allow_prefixes: string[];
-  severity_threshold: string;
+  allowRules?: string[];
+  allowPrefixes?: string[];
+  severityThreshold?: string;
+  /** @deprecated YAML field compatibility. */
+  pack_dirs?: string[];
+  /** @deprecated YAML field compatibility. */
+  allow_rules?: string[];
+  /** @deprecated YAML field compatibility. */
+  allow_prefixes?: string[];
+  /** @deprecated YAML field compatibility. */
+  severity_threshold?: string;
 };
 export type Decision = {
   action: "allow" | "block";
@@ -38,6 +46,14 @@ export type Decision = {
   severity: string;
   command: string;
 };
+
+const configValue = (config: Config) => ({
+  allow: config.allow,
+  allowRules: config.allowRules ?? config.allow_rules ?? [],
+  allowPrefixes: config.allowPrefixes ?? config.allow_prefixes ?? [],
+  severityThreshold:
+    config.severityThreshold ?? config.severity_threshold ?? "high",
+});
 
 export function shellSplit(s: string): string[] {
   const out: string[] = [];
@@ -132,31 +148,43 @@ function glob(s: string, p: string): boolean {
     "$";
   return new RegExp(re).test(s);
 }
+const hasMissingTokens = (required: string[], tokens: Set<string>): boolean =>
+  required.some((token) => !tokens.has(token));
+const hasNoMatchingToken = (required: string[], tokens: Set<string>): boolean =>
+  required.length > 0 && !required.some((token) => tokens.has(token));
+const hasMissingFlags = (required: string[], flags: Set<string>): boolean =>
+  required.some((flag) => !flags.has(flag.length === 1 ? `-${flag}` : flag));
+const hasExemption = (
+  exemptions: string[] | undefined,
+  tokens: Set<string>,
+): boolean => (exemptions ?? []).some((token) => tokens.has(token));
 export function match(tokens: string[], fs: Set<string>, r: Rule): boolean {
   if (!tokens.length || (r.command && tokens[0] !== r.command)) return false;
+  const hasAll = r.hasAll ?? r.has_all ?? [];
+  const hasAny = r.hasAny ?? r.has_any ?? [];
+  const flagsContain = r.flagsContain ?? r.flags_contain ?? [];
+  const unlessPath = r.unlessPath ?? r.unless_path;
+  const pathIs = r.pathIs ?? r.path_is;
   const all = new Set(tokens),
     combined = new Set([...all, ...fs]);
-  if (
-    r.has_all.some((x) => !all.has(x)) ||
-    (r.has_any.length && !r.has_any.some((x) => combined.has(x))) ||
-    r.flags_contain.some((x) => !fs.has(x.length === 1 ? `-${x}` : x)) ||
-    r.unless.some((x) => combined.has(x))
-  )
+  if (hasMissingTokens(hasAll, all) || hasNoMatchingToken(hasAny, combined))
     return false;
-  if (r.unless_path) {
+  if (hasMissingFlags(flagsContain, fs) || hasExemption(r.unless, combined))
+    return false;
+  if (unlessPath) {
     for (const p of paths(tokens)) {
       if (p.includes("..")) {
-        if (r.unless_path === true) return true;
+        if (unlessPath === true) return true;
         continue;
       }
-      if (Array.isArray(r.unless_path) && r.unless_path.some((x) => glob(p, x)))
+      if (Array.isArray(unlessPath) && unlessPath.some((x) => glob(p, x)))
         return false;
     }
   }
   return (
-    !r.path_is ||
+    !pathIs ||
     paths(tokens).some((p) =>
-      Array.isArray(r.path_is) ? r.path_is.includes(p) : p === r.path_is,
+      Array.isArray(pathIs) ? pathIs.includes(p) : p === pathIs,
     )
   );
 }
@@ -265,11 +293,11 @@ export function evaluate(
   packs: Pack[],
   config: Config = {
     packs: [],
-    pack_dirs: [],
+    packDirs: [],
     allow: [],
-    allow_rules: [],
-    allow_prefixes: [],
-    severity_threshold: "high",
+    allowRules: [],
+    allowPrefixes: [],
+    severityThreshold: "high",
   },
   depth = 0,
 ): Decision {
@@ -280,14 +308,8 @@ export function evaluate(
     severity: "",
     command,
   };
-  if (
-    !command.trim() ||
-    config.allow.some(
-      (x) => command.trim() === x || command.trim().startsWith(x + " "),
-    ) ||
-    config.allow_prefixes.some((x) => command.trim().startsWith(x))
-  )
-    return allow;
+  const settings = configValue(config);
+  if (isAllowed(command, settings)) return allow;
   if (depth < 1) {
     const body = heredoc(command);
     if (body)
@@ -303,12 +325,11 @@ export function evaluate(
     for (const p of packs) {
       if (p.keywords.length && !p.keywords.includes(t[0])) continue;
       for (const r of p.rules) {
-        if ((ORDER[r.severity] ?? 2) < (ORDER[config.severity_threshold] ?? 4))
-          continue;
+        if (isBelowThreshold(r, settings.severityThreshold)) continue;
         let hit = match(t, f, r);
         if (!hit && r.compiled)
           hit = r.compiled.test(sanitize(t)) || r.compiled.test(seg);
-        if (hit && !config.allow_rules.includes(r.rule_id))
+        if (hit && !settings.allowRules.includes(r.rule_id))
           return {
             action: "block",
             rule_id: r.rule_id,
@@ -335,3 +356,15 @@ export function evaluate(
   }
   return allow;
 }
+const isAllowed = (
+  command: string,
+  settings: ReturnType<typeof configValue>,
+): boolean =>
+  !command.trim() ||
+  settings.allow.some(
+    (value) =>
+      command.trim() === value || command.trim().startsWith(value + " "),
+  ) ||
+  settings.allowPrefixes.some((value) => command.trim().startsWith(value));
+const isBelowThreshold = (rule: Rule, threshold: string): boolean =>
+  (ORDER[rule.severity] ?? 2) < (ORDER[threshold] ?? 4);

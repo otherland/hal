@@ -7,11 +7,21 @@ export type Rule = {
   command?: string;
   severity: string;
   reason: string;
-  has_all: string[];
-  has_any: string[];
-  flags_contain: string[];
-  unless: string[];
+  hasAll?: string[];
+  hasAny?: string[];
+  flagsContain?: string[];
+  unless?: string[];
+  unlessPath?: string[] | true;
+  pathIs?: string | string[];
+  /** @deprecated YAML field compatibility. */
+  has_all?: string[];
+  /** @deprecated YAML field compatibility. */
+  has_any?: string[];
+  /** @deprecated YAML field compatibility. */
+  flags_contain?: string[];
+  /** @deprecated YAML field compatibility. */
   unless_path?: string[] | true;
+  /** @deprecated YAML field compatibility. */
   path_is?: string | string[];
   pattern?: string;
   compiled?: RegExp;
@@ -78,12 +88,12 @@ function compileRule(pack: string, raw: Record<string, unknown>): Rule {
     command: raw.command == null ? undefined : String(raw.command),
     severity: String(raw.severity ?? "medium"),
     reason: String(raw.reason ?? raw.description ?? ""),
-    has_all: list(raw.has_all),
-    has_any: list(raw.has_any),
-    flags_contain: list(raw.flags_contain),
+    hasAll: list(raw.has_all),
+    hasAny: list(raw.has_any),
+    flagsContain: list(raw.flags_contain),
     unless: list(raw.unless),
-    unless_path: raw.unless_path === true ? true : list(raw.unless_path),
-    path_is:
+    unlessPath: raw.unless_path === true ? true : list(raw.unless_path),
+    pathIs:
       raw.path_is == null
         ? undefined
         : Array.isArray(raw.path_is)
