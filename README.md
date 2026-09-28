@@ -84,7 +84,7 @@ loads the YAML packs from `packs/`, and fails open on invalid or empty input.
 Once published, install the package by name:
 
 ```bash
-npm install -g openhal
+npm install -g @otherland/openhal
 ```
 
 ### Install into one repository
