@@ -5,6 +5,10 @@
 <h1 align="center">HAL — Harmful Action Limiter</h1>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/harmfulactionlimiter"><img src="https://img.shields.io/npm/v/harmfulactionlimiter" alt="npm version"></a>
+</p>
+
+<p align="center">
   <em>"I'm sorry, Dave. I'm afraid I can't do that."</em><br>
   <sub>— HAL 9000, <i>2001: A Space Odyssey</i></sub>
 </p>
