@@ -81,6 +81,25 @@ Installation builds the TypeScript CLI and places the `hal` command on your
 `PATH`. The CLI reads the JSON hook protocol used by Copilot and Claude Code,
 loads the YAML packs from `packs/`, and fails open on invalid or empty input.
 
+### Install into one repository
+
+Add HAL as a development dependency from a local checkout or Git reference:
+
+```bash
+npm install --save-dev /path/to/hal
+npx hal install
+```
+
+For a Git dependency, use `npm install --save-dev
+github:otherland/hal`. npm builds the package during installation and exposes
+the local binary through `npx`; no global install is needed. If the agent does
+not inherit the repository's local `node_modules/.bin` path, install the hook
+with an explicit executable path:
+
+```bash
+HAL_PATH="$PWD/node_modules/.bin/hal" npx hal install
+```
+
 ### GitHub Copilot (default)
 
 ```bash
