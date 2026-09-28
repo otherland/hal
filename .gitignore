@@ -1,8 +1,7 @@
 .claude/
 CLAUDE.md
 PLAN.md
-__pycache__/
-*.pyc
-*.egg-info/
 dist/
-build/
+
+# Local beads state
+.beads/

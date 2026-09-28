@@ -1,0 +1,45 @@
+{
+  "name": "harmfulactionlimiter",
+  "version": "0.1.1",
+  "description": "HAL — Harmful Action Limiter (TypeScript implementation)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/otherland/hal.git"
+  },
+  "homepage": "https://github.com/otherland/hal#readme",
+  "bugs": {
+    "url": "https://github.com/otherland/hal/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/**/*.js",
+    "packs/**/*.yaml",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "hal": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "tsx --test test/*.test.ts",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
