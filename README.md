@@ -74,13 +74,14 @@ HAL uses token-level matching rather than pattern-matching against raw command s
 ## Install
 
 ```bash
-pip install openhal
+npm install
+npm run build
 ```
 
 ### GitHub Copilot (default)
 
 ```bash
-hal install
+npx hal install
 ```
 
 Writes `.github/hooks/hal.json` at the Git repository root. Commands are checked before Copilot runs them.
@@ -95,7 +96,7 @@ before that one-time trust step is complete.
 Check the effective setup before unattended use:
 
 ```bash
-hal doctor
+npx hal doctor
 ```
 
 If `hal doctor` reports an untrusted folder, add the repository to Copilot's
@@ -107,24 +108,24 @@ protect Copilot commands.
 ### Claude Code
 
 ```bash
-hal install --claude            # global (~/.claude/settings.json)
-hal install --claude --project  # project-level (.claude/settings.json)
+npx hal install --claude            # global (~/.claude/settings.json)
+npx hal install --claude --project  # project-level (.claude/settings.json)
 ```
 
 ## Usage
 
 ```bash
 # Hook mode (default): reads stdin JSON from agent, evaluates, responds
-hal
+npx hal
 
 # Test a command interactively
-hal test "git reset --hard"        # BLOCKED
-hal test "git commit -m 'fix'"     # ALLOWED
-hal test "sudo rm -rf /"           # BLOCKED
-hal test "rm -rf node_modules"     # ALLOWED
+npx hal test "git reset --hard"        # BLOCKED
+npx hal test "git commit -m 'fix'"     # ALLOWED
+npx hal test "sudo rm -rf /"           # BLOCKED
+npx hal test "rm -rf node_modules"     # ALLOWED
 
 # Check whether Copilot can load the repository hook
-hal doctor
+npx hal doctor
 ```
 
 ## Packs
@@ -159,7 +160,7 @@ Project-level overrides: `.hal.yaml` in your repo root (merged with global, proj
 
 - Fail-open everywhere. Any error defaults to ALLOW. HAL never blocks legitimate work.
 - Token-level matching. No regex needed for 90% of rules. Regex is an escape hatch, not the default.
-- Sub-millisecond hook evaluation. Pure Python, no network calls, no disk I/O beyond config load.
+- Sub-millisecond hook evaluation. TypeScript, no network calls, no disk I/O beyond config load.
 - No config required. Works out of the box with all packs enabled.
 - Small enough to audit. Same protection as tools 100x the size.
 

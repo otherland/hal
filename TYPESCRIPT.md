@@ -1,7 +1,7 @@
 # TypeScript implementation
 
-HAL now has a standalone TypeScript CLI in `src/`, alongside (and without
-changing) the Python implementation. It reads the same `packs/*.yaml` files
+HAL is implemented as a TypeScript CLI in `src/`. It reads the existing
+`packs/*.yaml` files
 and implements the same token normalisation, flag expansion, segment
 evaluation, regex fallback, severity threshold, allow lists, and inline
 interpreter checks.
@@ -12,13 +12,12 @@ Install dependencies and run it with:
 npm install
 npm test
 npm run build
-echo '{"toolInput":{"command":"git push --force"}}' | node dist/cli.js
+echo '{"toolInput":{"command":"git push --force"}}' | npx hal
 ```
 
-`hal-ts` is the npm binary name so it can coexist with the Python `hal`
-command. Hook output is intentionally identical: Copilot receives
+The npm binary is `hal`. Hook output is intentionally identical: Copilot receives
 `continue`, `permissionDecision`, and `permissionDecisionReason`; Claude
 receives `hookSpecificOutput`. Invalid or empty input fails open with exit 0.
-The parity tests cover representative decisions and both input protocols.
-The Python CLI remains the reference implementation; new rule-pack fields
-should be added to both evaluators when extending HAL.
+The focused tests cover representative decisions, heredocs, and both hook
+protocols. New rule-pack fields should be covered by the TypeScript evaluator
+and a focused test when extending HAL.

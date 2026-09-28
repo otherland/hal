@@ -23,7 +23,7 @@ export function loadPacks(dirs = [path.resolve(import.meta.dirname, "..", "packs
         const id = String(data.id ?? path.basename(file, path.extname(file)));
         const rules = Array.isArray(data.rules) ? data.rules.filter(r => r && typeof r === "object").map(r => compileRule(id, r as Record<string, unknown>)) : [];
         result.push({ id, name: String(data.name ?? id), keywords: list(data.keywords), rules });
-      } catch { /* fail open, like the Python loader */ }
+      } catch { /* malformed packs are ignored so evaluation fails open */ }
     }
   }
   return result;

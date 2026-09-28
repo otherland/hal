@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "hal-ts": "dist/cli.js"
+    "hal": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
