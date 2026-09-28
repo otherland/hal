@@ -181,9 +181,14 @@ test("built-in packs cover destructive operations and safe exceptions", () => {
     ["git clean -f", "block"],
     ["git clean -f -n", "allow"],
     ["git stash clear", "block"],
-    ["git branch -D feature", "allow"],
+    ["git branch -D feature", "block"],
+    ["git push -f origin main", "block"],
     ["rm -rf /var/data", "block"],
     ["rm -rf node_modules", "allow"],
+    ["rm -rf ./node_modules", "allow"],
+    ["rm -rf /tmp", "allow"],
+    ["rm -rf /tmp/file", "allow"],
+    ["rm -rf node_modules src", "block"],
     ["chmod 777 /etc/passwd", "block"],
     ["chmod 644 file.txt", "allow"],
     ["mkfs /dev/sda1", "block"],
@@ -206,4 +211,20 @@ test("built-in packs cover destructive operations and safe exceptions", () => {
   ];
   for (const [command, action] of cases)
     assert.equal(evaluate(command, packs).action, action, command);
+});
+
+test("allow commands are exact while custom packs retain built-ins", () => {
+  assert.equal(
+    evaluate(
+      "git push --force",
+      packs,
+      config({ allow: ["git push"] }),
+    ).action,
+    "block",
+  );
+  assert.equal(
+    evaluate("git push --force", packs, config({ packs: ["core.filesystem"] }))
+      .action,
+    "allow",
+  );
 });

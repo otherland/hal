@@ -197,11 +197,16 @@ All packs enabled by default. No configuration required.
 packs: [core.git, core.filesystem, containers.docker, cloud.aws, cloud.azure]
 allow: []                # Exact commands to always allow
 allow_rules: []          # Rule IDs to disable (e.g. "core.git:push-force")
-allow_prefixes: []       # Command prefixes to allow
-severity_threshold: high # Block at this level and above
+allow_prefixes: []       # Raw command prefixes to allow
+severity_threshold: warn # Warn and block at this level and above
 ```
 
 Project-level overrides: `.hal.yaml` in your repo root (merged with global, project wins).
+
+`packs` optionally selects enabled pack IDs; when empty, all packs are enabled.
+`pack_dirs` adds custom pack directories alongside the built-in packs. The
+`allow` list is exact-match only; use `allow_prefixes` when a raw prefix is
+intended.
 
 ## Design principles
 

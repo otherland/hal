@@ -15,8 +15,11 @@ import { install } from "./install.js";
 function main(): void {
   try {
     const args = process.argv.slice(2);
-    const config = loadConfig(),
-      packs = loadPacks(config.packDirs?.length ? config.packDirs : undefined);
+    const config = loadConfig();
+    const packs = [
+      ...loadPacks(undefined, config.packs),
+      ...loadPacks(config.packDirs?.length ? config.packDirs : [], config.packs),
+    ];
     if (args[0] === "install") {
       install(
         args.includes("--claude"),

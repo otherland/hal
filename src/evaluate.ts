@@ -10,6 +10,11 @@ const LONG: Record<string, string[]> = {
   "--interactive": ["-i"],
   "--no-preserve-root": ["--no-preserve-root"],
 };
+const SHORT_TO_LONG: Record<string, string> = Object.fromEntries(
+  Object.entries(LONG).flatMap(([long, shorts]) =>
+    shorts.filter((short) => short !== long).map((short) => [short, long]),
+  ),
+);
 const BINARIES = new Set(
   "git rm mv cp chmod chown chgrp ln sudo env command bash sh zsh fish python python3 node ruby perl docker kubectl aws gcloud az curl wget ssh scp rsync kill killall pkill dd mkfs fdisk iptables systemctl journalctl".split(
     " ",
@@ -52,7 +57,7 @@ const configValue = (config: Config) => ({
   allowRules: config.allowRules ?? config.allow_rules ?? [],
   allowPrefixes: config.allowPrefixes ?? config.allow_prefixes ?? [],
   severityThreshold:
-    config.severityThreshold ?? config.severity_threshold ?? "high",
+    config.severityThreshold ?? config.severity_threshold ?? "warn",
 });
 
 export function shellSplit(s: string): string[] {
@@ -131,13 +136,21 @@ export function flags(tokens: string[]): Set<string> {
       const base = t.split("=")[0];
       if (base !== t) out.add(base);
       if (LONG[base]) LONG[base].forEach((x) => out.add(x));
-      else if (!t.startsWith("--") && t.length > 2)
-        [...t.slice(1)].forEach((x) => out.add(`-${x}`));
+      if (SHORT_TO_LONG[base]) out.add(SHORT_TO_LONG[base]);
+      if (!t.startsWith("--") && t.length > 2) {
+        for (const x of t.slice(1)) {
+          const short = `-${x}`;
+          out.add(short);
+          if (SHORT_TO_LONG[short]) out.add(SHORT_TO_LONG[short]);
+        }
+      }
     }
   return out;
 }
 const paths = (t: string[]) =>
   t.slice(1).filter((x) => x !== "--" && !x.startsWith("-"));
+const pathArgs = (tokens: string[]) => paths(tokens);
+const normalizePath = (value: string): string => value.replace(/^\.\/+/, "");
 function glob(s: string, p: string): boolean {
   const re =
     "^" +
@@ -172,20 +185,30 @@ export function match(tokens: string[], fs: Set<string>, r: Rule): boolean {
   if (hasMissingFlags(flagsContain, fs) || hasExemption(r.unless, combined))
     return false;
   if (unlessPath) {
-    for (const p of paths(tokens)) {
+    for (const p of pathArgs(tokens)) {
       if (p.includes("..")) {
         if (unlessPath === true) return true;
         continue;
       }
-      if (Array.isArray(unlessPath) && unlessPath.some((x) => glob(p, x)))
-        return false;
     }
+    if (
+      Array.isArray(unlessPath) &&
+      pathArgs(tokens).length > 0 &&
+      !pathArgs(tokens).some((p) => p.includes("..")) &&
+      pathArgs(tokens).every((p) =>
+        unlessPath.some((pattern) => glob(normalizePath(p), pattern)),
+      )
+    )
+      return false;
   }
   return (
     !pathIs ||
-    paths(tokens).some((p) =>
-      Array.isArray(pathIs) ? pathIs.includes(p) : p === pathIs,
-    )
+    pathArgs(tokens).some((p) => {
+      const normalized = normalizePath(p);
+      return Array.isArray(pathIs)
+        ? pathIs.includes(normalized)
+        : normalized === pathIs;
+    })
   );
 }
 function sanitize(t: string[]): string {
@@ -297,7 +320,7 @@ export function evaluate(
     allow: [],
     allowRules: [],
     allowPrefixes: [],
-    severityThreshold: "high",
+    severityThreshold: "warn",
   },
   depth = 0,
 ): Decision {
@@ -318,11 +341,15 @@ export function evaluate(
         if (d.action === "block") return d;
       }
   }
+  const activePacks =
+    config.packs.length > 0
+      ? packs.filter((pack) => config.packs.includes(pack.id))
+      : packs;
   for (const seg of segments(command)) {
     const t = normalize(shellSplit(seg));
     if (!t.length) continue;
     const f = flags(t);
-    for (const p of packs) {
+    for (const p of activePacks) {
       if (p.keywords.length && !p.keywords.includes(t[0])) continue;
       for (const r of p.rules) {
         if (isBelowThreshold(r, settings.severityThreshold)) continue;
@@ -361,10 +388,7 @@ const isAllowed = (
   settings: ReturnType<typeof configValue>,
 ): boolean =>
   !command.trim() ||
-  settings.allow.some(
-    (value) =>
-      command.trim() === value || command.trim().startsWith(value + " "),
-  ) ||
+  settings.allow.some((value) => command.trim() === value) ||
   settings.allowPrefixes.some((value) => command.trim().startsWith(value));
 const isBelowThreshold = (rule: Rule, threshold: string): boolean =>
-  (ORDER[rule.severity] ?? 2) < (ORDER[threshold] ?? 4);
+  (ORDER[rule.severity] ?? 2) < (ORDER[threshold] ?? 3);

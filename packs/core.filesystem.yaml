@@ -17,7 +17,9 @@ rules:
       - ".next"
       - ".nuxt"
       - "*.egg-info"
+      - "/tmp"
       - "/tmp/*"
+      - "/var/tmp"
       - "/var/tmp/*"
     severity: block
 

@@ -36,6 +36,7 @@ export type Pack = {
 
 export function loadPacks(
   dirs = [path.resolve(import.meta.dirname, "..", "packs")],
+  selectedIds: string[] = [],
 ): Pack[] {
   const result: Pack[] = [];
   for (const dir of dirs) {
@@ -54,6 +55,7 @@ export function loadPacks(
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
         const data = raw as Record<string, unknown>;
         const id = String(data.id ?? path.basename(file, path.extname(file)));
+        if (selectedIds.length > 0 && !selectedIds.includes(id)) continue;
         const rules = Array.isArray(data.rules)
           ? data.rules
               .filter((r) => r && typeof r === "object")

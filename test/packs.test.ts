@@ -70,3 +70,28 @@ test("pack ids, rule id fallbacks, keywords, and nonexistent dirs are stable", (
     fs.rmSync(d, { recursive: true, force: true });
   }
 });
+
+test("selected pack ids filter built-ins and custom packs", () => {
+  const d = temp();
+  try {
+    fs.writeFileSync(path.join(d, "custom.yaml"), "id: custom\nrules: []\n");
+    assert.deepEqual(loadPacks(undefined, ["core.git"]).map((p) => p.id), [
+      "core.git",
+    ]);
+    assert.deepEqual(loadPacks([d], ["custom"]).map((p) => p.id), ["custom"]);
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("custom pack directories are additive to built-ins", () => {
+  const d = temp();
+  try {
+    fs.writeFileSync(path.join(d, "custom.yaml"), "id: custom\nrules: []\n");
+    const loaded = [...loadPacks(), ...loadPacks([d])];
+    assert.ok(loaded.some((p) => p.id === "core.git"));
+    assert.ok(loaded.some((p) => p.id === "custom"));
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});

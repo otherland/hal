@@ -8,7 +8,7 @@ const temp = () =>
   fs.mkdtempSync(path.join(path.dirname(process.cwd()), ".hal-test-"));
 test("configuration defaults and missing files fail open", () => {
   const c = loadConfig(path.join(process.cwd(), ".does-not-exist"));
-  assert.equal(c.severity_threshold, "high");
+  assert.equal(c.severity_threshold, "warn");
   assert.deepEqual(c.packs, []);
   assert.deepEqual(c.allow, []);
 });
