@@ -4,11 +4,18 @@
   "description": "HAL — Harmful Action Limiter (TypeScript implementation)",
   "private": true,
   "type": "module",
+  "files": [
+    "dist/**/*.js",
+    "packs/**/*.yaml",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "hal": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
     "test": "tsx --test test/*.test.ts",
     "start": "tsx src/cli.ts"
   },

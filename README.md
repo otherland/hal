@@ -74,18 +74,17 @@ HAL uses token-level matching rather than pattern-matching against raw command s
 ## Install
 
 ```bash
-npm install
-npm run build
+npm install -g .
 ```
 
-HAL is a TypeScript CLI. The compiled `hal` command reads the same JSON hook
-protocol used by Copilot and Claude Code, loads the YAML packs from `packs/`,
-and fails open on invalid or empty input.
+Installation builds the TypeScript CLI and places the `hal` command on your
+`PATH`. The CLI reads the JSON hook protocol used by Copilot and Claude Code,
+loads the YAML packs from `packs/`, and fails open on invalid or empty input.
 
 ### GitHub Copilot (default)
 
 ```bash
-npx hal install
+hal install
 ```
 
 Writes this generated hook file at the Git repository root:
@@ -119,7 +118,7 @@ before that one-time trust step is complete.
 Check the effective setup before unattended use:
 
 ```bash
-npx hal doctor
+hal doctor
 ```
 
 If `hal doctor` reports an untrusted folder, add the repository to Copilot's
@@ -131,24 +130,24 @@ protect Copilot commands.
 ### Claude Code
 
 ```bash
-npx hal install --claude            # global (~/.claude/settings.json)
-npx hal install --claude --project  # project-level (.claude/settings.json)
+hal install --claude            # global (~/.claude/settings.json)
+hal install --claude --project  # project-level (.claude/settings.json)
 ```
 
 ## Usage
 
 ```bash
 # Hook mode (default): reads stdin JSON from agent, evaluates, responds
-npx hal
+hal
 
 # Test a command interactively
-npx hal test "git reset --hard"        # BLOCKED
-npx hal test "git commit -m 'fix'"     # ALLOWED
-npx hal test "sudo rm -rf /"           # BLOCKED
-npx hal test "rm -rf node_modules"     # ALLOWED
+hal test "git reset --hard"        # BLOCKED
+hal test "git commit -m 'fix'"     # ALLOWED
+hal test "sudo rm -rf /"           # BLOCKED
+hal test "rm -rf node_modules"     # ALLOWED
 
 # Check whether Copilot can load the repository hook
-npx hal doctor
+hal doctor
 ```
 
 ## Packs
