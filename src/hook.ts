@@ -8,7 +8,8 @@ export function detectProtocol(d: Record<string, unknown>): string {
     "toolArgs" in d
   )
     return COPILOT;
-  return CLAUDE;
+  if ("hookSpecificInput" in d || "tool_input" in d) return CLAUDE;
+  return COPILOT;
 }
 export function extractCommand(d: Record<string, unknown>): string | undefined {
   const get = (v: unknown): string | undefined =>
@@ -50,12 +51,14 @@ export function decisionOutput(
       ? {
           continue: action === "ask",
           stopReason: msg,
+          rule: id,
           permissionDecision: action,
           permissionDecisionReason: msg,
         }
       : {
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
+            rule: id,
             permissionDecision: action,
             permissionDecisionReason: msg,
           },

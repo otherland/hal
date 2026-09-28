@@ -52,6 +52,7 @@ it("formats Copilot and Claude decisions", () => {
   assert.deepEqual(copilot, {
     continue: false,
     stopReason: "BLOCKED [core.git:git-push-force]: unsafe",
+    rule: "core.git:git-push-force",
     permissionDecision: "deny",
     permissionDecisionReason: "BLOCKED [core.git:git-push-force]: unsafe",
   });

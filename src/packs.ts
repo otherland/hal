@@ -12,7 +12,7 @@ export type Rule = {
   flags_contain: string[];
   unless: string[];
   unless_path?: string[] | true;
-  path_is?: string;
+  path_is?: string | string[];
   pattern?: string;
   compiled?: RegExp;
   rule_id: string;
@@ -83,7 +83,12 @@ function compileRule(pack: string, raw: Record<string, unknown>): Rule {
     flags_contain: list(raw.flags_contain),
     unless: list(raw.unless),
     unless_path: raw.unless_path === true ? true : list(raw.unless_path),
-    path_is: raw.path_is == null ? undefined : String(raw.path_is),
+    path_is:
+      raw.path_is == null
+        ? undefined
+        : Array.isArray(raw.path_is)
+          ? raw.path_is.map(String)
+          : String(raw.path_is),
     pattern: raw.pattern == null ? undefined : String(raw.pattern),
     compiled,
     rule_id: `${pack}:${name}`,

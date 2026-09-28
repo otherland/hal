@@ -153,7 +153,12 @@ export function match(tokens: string[], fs: Set<string>, r: Rule): boolean {
         return false;
     }
   }
-  return !r.path_is || paths(tokens).some((p) => p === r.path_is);
+  return (
+    !r.path_is ||
+    paths(tokens).some((p) =>
+      Array.isArray(r.path_is) ? r.path_is.includes(p) : p === r.path_is,
+    )
+  );
 }
 function sanitize(t: string[]): string {
   if (!t.length) return "";
