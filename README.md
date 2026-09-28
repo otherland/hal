@@ -83,7 +83,26 @@ pip install openhal
 hal install
 ```
 
-Writes `.github/hooks/hal.json` in your repo. Commands are checked before Copilot runs them.
+Writes `.github/hooks/hal.json` at the Git repository root. Commands are checked before Copilot runs them.
+
+### Headless Copilot and repository trust
+
+For unattended `copilot -p` runs, Copilot CLI needs the repository folder to be
+trusted before it will run repository hooks. Interactive Copilot normally asks
+you to trust a new folder. A hook file can therefore be installed correctly
+before that one-time trust step is complete.
+
+Check the effective setup before unattended use:
+
+```bash
+hal doctor
+```
+
+If `hal doctor` reports an untrusted folder, add the repository to Copilot's
+`trustedFolders` configuration and rerun the check. For temporary prompt-mode
+tests, `GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS=true` enables repository hooks
+explicitly. Once the check reports `configured and trusted`, HAL is ready to
+protect Copilot commands.
 
 ### Claude Code
 
@@ -103,6 +122,9 @@ hal test "git reset --hard"        # BLOCKED
 hal test "git commit -m 'fix'"     # ALLOWED
 hal test "sudo rm -rf /"           # BLOCKED
 hal test "rm -rf node_modules"     # ALLOWED
+
+# Check whether Copilot can load the repository hook
+hal doctor
 ```
 
 ## Packs
@@ -137,9 +159,9 @@ Project-level overrides: `.hal.yaml` in your repo root (merged with global, proj
 
 - Fail-open everywhere. Any error defaults to ALLOW. HAL never blocks legitimate work.
 - Token-level matching. No regex needed for 90% of rules. Regex is an escape hatch, not the default.
-- Sub-millisecond. Pure Python, no network calls, no disk I/O beyond config load.
+- Sub-millisecond hook evaluation. Pure Python, no network calls, no disk I/O beyond config load.
 - No config required. Works out of the box with all packs enabled.
-- ~400 lines of code. Same protection as tools 100x the size.
+- Small enough to audit. Same protection as tools 100x the size.
 
 ## Contributing
 

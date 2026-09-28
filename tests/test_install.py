@@ -18,8 +18,10 @@ class TestInstallCopilot:
                 hook_path = Path(d) / ".github" / "hooks" / "hal.json"
                 assert hook_path.exists()
                 data = json.loads(hook_path.read_text())
-                assert data["command"] == "/usr/bin/hal"
-                assert "pre-tool-use" in data["events"]
+                assert data["version"] == 1
+                entry = data["hooks"]["preToolUse"][0]
+                assert entry["bash"] == "/usr/bin/hal"
+                assert entry["powershell"] == "/usr/bin/hal"
 
 
 class TestInstallClaude:
@@ -34,7 +36,7 @@ class TestInstallClaude:
             assert "PreToolUse" in data["hooks"]
             hooks = data["hooks"]["PreToolUse"]
             assert len(hooks) == 1
-            assert hooks[0]["command"] == "/usr/bin/hal"
+            assert hooks[0]["hooks"][0]["command"] == "/usr/bin/hal"
 
     def test_merges_with_existing(self):
         with tempfile.TemporaryDirectory() as d:
@@ -54,7 +56,11 @@ class TestInstallClaude:
             data = json.loads((settings_dir / "settings.json").read_text())
             hooks = data["hooks"]["PreToolUse"]
             assert len(hooks) == 2  # existing + new
-            commands = [h["command"] for h in hooks]
+            commands = [
+                hook["command"]
+                for entry in hooks
+                for hook in entry.get("hooks", [entry])
+            ]
             assert "other-tool" in commands
             assert "/usr/bin/hal" in commands
 
@@ -66,7 +72,12 @@ class TestInstallClaude:
             existing = {
                 "hooks": {
                     "PreToolUse": [
-                        {"type": "command", "command": "/old/path/hal"}
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {"type": "command", "command": "/old/path/hal"}
+                            ],
+                        }
                     ]
                 }
             }
@@ -76,7 +87,7 @@ class TestInstallClaude:
             data = json.loads((settings_dir / "settings.json").read_text())
             hooks = data["hooks"]["PreToolUse"]
             assert len(hooks) == 1
-            assert hooks[0]["command"] == "/new/path/hal"
+            assert hooks[0]["hooks"][0]["command"] == "/new/path/hal"
 
     def test_no_configure_flag(self):
         """--no-configure should not add hooks, just write the file."""

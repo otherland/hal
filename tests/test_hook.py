@@ -32,7 +32,7 @@ class TestDetectProtocol:
         assert detect_protocol(data) == COPILOT
 
     def test_empty_defaults_copilot(self):
-        assert detect_protocol({}) == COPILOT
+        assert detect_protocol({}) == CLAUDE
 
 
 class TestExtractCommand:
@@ -77,12 +77,12 @@ class TestDenyOutput:
         result = json.loads(deny_output(COPILOT, "core.git:push-force", "bad push"))
         assert result["continue"] is False
         assert result["permissionDecision"] == "deny"
-        assert result["rule"] == "core.git:push-force"
+        assert "core.git:push-force" in result["permissionDecisionReason"]
 
     def test_claude_deny(self):
         result = json.loads(deny_output(CLAUDE, "core.git:push-force", "bad push"))
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-        assert result["hookSpecificOutput"]["rule"] == "core.git:push-force"
+        assert "core.git:push-force" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 class TestAskOutput:

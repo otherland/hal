@@ -25,6 +25,8 @@ def main():
         install_p.add_argument("--project", action="store_true", help="Use project-level settings (with --claude)")
         install_p.add_argument("--no-configure", action="store_true", help="Only update binary path")
 
+        sub.add_parser("doctor", help="Check Copilot hook installation and trust")
+
         args = parser.parse_args()
 
         if args.command == "test":
@@ -35,6 +37,10 @@ def main():
                 project=args.project,
                 no_configure=args.no_configure,
             )
+        elif args.command == "doctor":
+            from hal.doctor import run
+
+            sys.exit(run())
         else:
             # Default: hook mode — read JSON from stdin, evaluate, respond
             _cmd_hook()
@@ -112,9 +118,7 @@ def _cmd_test(command: str):
 
 def _cmd_install(claude: bool = False, project: bool = False, no_configure: bool = False):
     """Install hooks for Copilot and/or Claude Code."""
-    import json
     import shutil
-    from pathlib import Path
 
     hal_path = shutil.which("hal") or sys.executable + " -m hal"
 
@@ -178,7 +182,9 @@ def _install_copilot(hal_path: str, no_configure: bool):
     import json
     from pathlib import Path
 
-    hooks_dir = Path(".github") / "hooks"
+    from hal.doctor import repo_root
+
+    hooks_dir = repo_root() / ".github" / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
     hook_path = hooks_dir / "hal.json"
 

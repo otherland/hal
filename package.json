@@ -1,0 +1,24 @@
+{
+  "name": "openhal",
+  "version": "0.1.0",
+  "description": "HAL — Harmful Action Limiter (TypeScript implementation)",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "hal-ts": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx --test test/*.test.ts",
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
