@@ -1,5 +1,5 @@
 {
-  "name": "@otherland/openhal",
+  "name": "harmfulactionlimiter",
   "version": "0.1.0",
   "description": "HAL — Harmful Action Limiter (TypeScript implementation)",
   "license": "MIT",

@@ -84,7 +84,7 @@ loads the YAML packs from `packs/`, and fails open on invalid or empty input.
 Once published, install the package by name:
 
 ```bash
-npm install -g @otherland/openhal
+npm install -g harmfulactionlimiter
 ```
 
 ### Install into one repository
