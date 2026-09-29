@@ -8,15 +8,16 @@ import {
   shellSplit,
 } from "../src/evaluate.js";
 import { loadPacks, type Pack, type Rule } from "../src/packs.js";
+import type { Config } from "../src/config.js";
 
 const packs = loadPacks();
-const config = (overrides = {}) => ({
+const config = (overrides: Partial<Config> = {}): Config => ({
   packs: [],
-  pack_dirs: [],
+  packDirs: [],
   allow: [],
-  allow_rules: [],
-  allow_prefixes: [],
-  severity_threshold: "high",
+  allowRules: [],
+  allowPrefixes: [],
+  severityThreshold: "high",
   ...overrides,
 });
 const rule = (overrides: Partial<Rule> = {}): Rule => ({
@@ -24,11 +25,11 @@ const rule = (overrides: Partial<Rule> = {}): Rule => ({
   command: "rm",
   severity: "block",
   reason: "",
-  has_all: [],
-  has_any: [],
-  flags_contain: [],
+  hasAll: [],
+  hasAny: [],
+  flagsContain: [],
   unless: [],
-  rule_id: "test:r",
+  ruleId: "test:r",
   ...overrides,
 });
 const custom = (): Pack[] => [
@@ -39,10 +40,10 @@ const custom = (): Pack[] => [
     rules: [
       rule({
         command: "git",
-        has_all: ["push"],
-        flags_contain: ["f"],
+        hasAll: ["push"],
+        flagsContain: ["f"],
         unless: ["--force-with-lease"],
-        rule_id: "test:push",
+        ruleId: "test:push",
       }),
     ],
   },
@@ -80,19 +81,19 @@ test("rule matching handles all/any flags, exemptions, paths, and keywords", () 
     match(
       ["rm", "-rf", "/"],
       flags(["rm", "-rf", "/"]),
-      rule({ has_all: ["-rf"], flags_contain: ["f"] }),
+      rule({ hasAll: ["-rf"], flagsContain: ["f"] }),
     ),
     true,
   );
   assert.equal(
-    match(["rm", "/"], flags(["rm", "/"]), rule({ has_all: ["-rf"] })),
+    match(["rm", "/"], flags(["rm", "/"]), rule({ hasAll: ["-rf"] })),
     false,
   );
   assert.equal(
     match(
       ["git", "push", "--dry-run"],
       flags(["git", "push", "--dry-run"]),
-      rule({ command: "git", has_all: ["push"], unless: ["--dry-run"] }),
+      rule({ command: "git", hasAll: ["push"], unless: ["--dry-run"] }),
     ),
     false,
   );
@@ -100,12 +101,12 @@ test("rule matching handles all/any flags, exemptions, paths, and keywords", () 
     match(
       ["rm", "node_modules"],
       flags(["rm", "node_modules"]),
-      rule({ unless_path: ["node_modules"] }),
+      rule({ unlessPath: ["node_modules"] }),
     ),
     false,
   );
   assert.equal(
-    match(["rm", "/"], flags(["rm", "/"]), rule({ path_is: ["/"] })),
+    match(["rm", "/"], flags(["rm", "/"]), rule({ pathIs: ["/"] })),
     true,
   );
 });
@@ -147,7 +148,7 @@ test("evaluation honors allow lists and severity thresholds", () => {
     evaluate(
       "git push --force",
       custom(),
-      config({ allow_rules: ["test:push"] }),
+      config({ allowRules: ["test:push"] }),
     ).action,
     "allow",
   );
@@ -155,18 +156,18 @@ test("evaluation honors allow lists and severity thresholds", () => {
     evaluate(
       "git push --force",
       custom(),
-      config({ allow_prefixes: ["git push"] }),
+      config({ allowPrefixes: ["git push"] }),
     ).action,
     "allow",
   );
   const warning = [
     {
       ...custom()[0],
-      rules: [rule({ command: "git", has_all: ["push"], severity: "warn" })],
+      rules: [rule({ command: "git", hasAll: ["push"], severity: "warn" })],
     },
   ];
   assert.equal(
-    evaluate("git push", warning, config({ severity_threshold: "block" }))
+    evaluate("git push", warning, config({ severityThreshold: "block" }))
       .action,
     "allow",
   );
@@ -215,11 +216,7 @@ test("built-in packs cover destructive operations and safe exceptions", () => {
 
 test("allow commands are exact while custom packs retain built-ins", () => {
   assert.equal(
-    evaluate(
-      "git push --force",
-      packs,
-      config({ allow: ["git push"] }),
-    ).action,
+    evaluate("git push --force", packs, config({ allow: ["git push"] })).action,
     "block",
   );
   assert.equal(

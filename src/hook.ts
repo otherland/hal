@@ -1,5 +1,7 @@
-export const COPILOT = "copilot",
-  CLAUDE = "claude";
+import type { PermissionDecision, Protocol } from "./types.js";
+
+export const COPILOT: Protocol = "copilot";
+export const CLAUDE: Protocol = "claude";
 export interface HookPayload {
   event?: unknown;
   toolName?: unknown;
@@ -13,19 +15,26 @@ export function isHookPayload(value: unknown): value is HookPayload {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export interface Decision {
-  continue?: boolean;
-  stopReason?: string;
-  rule?: string;
-  permissionDecision: "deny" | "ask";
+interface CopilotHookResponse {
+  continue: boolean;
+  stopReason: string;
+  permissionDecision: PermissionDecision;
   permissionDecisionReason: string;
 }
+interface ClaudeHookResponse {
+  hookSpecificOutput: {
+    hookEventName: "PreToolUse";
+    permissionDecision: PermissionDecision;
+    permissionDecisionReason: string;
+  };
+}
+export type HookResponse = CopilotHookResponse | ClaudeHookResponse;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function detectProtocol(d: HookPayload): string {
+export function detectProtocol(d: HookPayload): Protocol {
   if (
     d.event === "pre-tool-use" ||
     ["run_shell_command", "run-shell-command"].includes(String(d.toolName)) ||
@@ -64,28 +73,26 @@ export function extractCommand(d: HookPayload): string | undefined {
   return get(raw);
 }
 export function decisionOutput(
-  protocol: string,
-  action: "deny" | "ask",
+  protocol: Protocol,
+  action: PermissionDecision,
   id: string,
   reason: string,
 ): string {
   const msg = `${action === "deny" ? "BLOCKED" : "WARNING"} [${id}]: ${reason}`;
-  return JSON.stringify(
+  const response: HookResponse =
     protocol === COPILOT
       ? {
           continue: action === "ask",
           stopReason: msg,
-          rule: id,
           permissionDecision: action,
           permissionDecisionReason: msg,
         }
       : {
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
-            rule: id,
             permissionDecision: action,
             permissionDecisionReason: msg,
           },
-        },
-  );
+        };
+  return JSON.stringify(response);
 }

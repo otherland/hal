@@ -8,7 +8,7 @@ const temp = () =>
   fs.mkdtempSync(path.join(path.dirname(process.cwd()), ".hal-test-"));
 test("configuration defaults and missing files fail open", () => {
   const c = loadConfig(path.join(process.cwd(), ".does-not-exist"));
-  assert.equal(c.severity_threshold, "warn");
+  assert.equal(c.severityThreshold, "warn");
   assert.deepEqual(c.packs, []);
   assert.deepEqual(c.allow, []);
 });
@@ -22,8 +22,21 @@ test("project configuration loads and preserves list values", () => {
     const c = loadConfig(d);
     assert.deepEqual(c.packs, ["core.git", "core.filesystem"]);
     assert.deepEqual(c.allow, ["echo *"]);
-    assert.deepEqual(c.pack_dirs, ["/custom/packs"]);
-    assert.equal(c.severity_threshold, "medium");
+    assert.deepEqual(c.packDirs, ["/custom/packs"]);
+    assert.equal(c.severityThreshold, "medium");
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("invalid severity values fall back to the safe default", () => {
+  const d = temp();
+  try {
+    fs.writeFileSync(
+      path.join(d, ".hal.yaml"),
+      "severity_threshold: critical\n",
+    );
+    assert.equal(loadConfig(d).severityThreshold, "warn");
   } finally {
     fs.rmSync(d, { recursive: true, force: true });
   }
@@ -47,7 +60,7 @@ test("project lists merge with global lists", () => {
     try {
       const c = loadConfig(project);
       assert.deepEqual(c.allow, ["global", "project"]);
-      assert.deepEqual(c.pack_dirs, ["/global", "/project"]);
+      assert.deepEqual(c.packDirs, ["/global", "/project"]);
     } finally {
       if (old === undefined) delete process.env.HOME;
       else process.env.HOME = old;
