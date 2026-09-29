@@ -52,7 +52,6 @@ it("formats Copilot and Claude decisions", () => {
   assert.deepEqual(copilot, {
     continue: false,
     stopReason: "BLOCKED [core.git:git-push-force]: unsafe",
-    rule: "core.git:git-push-force",
     permissionDecision: "deny",
     permissionDecisionReason: "BLOCKED [core.git:git-push-force]: unsafe",
   });
@@ -70,7 +69,7 @@ it("merges project configuration and supports allow lists", () => {
     );
     const config = loadConfig(dir);
     assert.deepEqual(config.allow, ["git status"]);
-    assert.equal(config.severity_threshold, "block");
+    assert.equal(config.severityThreshold, "block");
     assert.equal(evaluate("git status", packs, config).action, "allow");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

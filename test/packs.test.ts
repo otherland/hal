@@ -22,7 +22,7 @@ test("pack loading handles defaults, custom directories, malformed YAML, and reg
     const loaded = loadPacks([d]);
     assert.equal(loaded.length, 2);
     assert.equal(
-      loaded.find((p) => p.name === "test-pack")?.rules[0].rule_id,
+      loaded.find((p) => p.name === "test-pack")?.rules[0].ruleId,
       "test:no-rm-rf",
     );
     const regex = loaded.find((p) => p.name === "regex-pack")?.rules[0];

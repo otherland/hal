@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
+import { isSeverity, type Severity } from "./types.js";
 
 export type Rule = {
   name: string;
   command?: string;
-  severity: string;
+  severity: Severity;
   reason: string;
   hasAll?: string[];
   hasAny?: string[];
@@ -13,19 +14,9 @@ export type Rule = {
   unless?: string[];
   unlessPath?: string[] | true;
   pathIs?: string | string[];
-  /** @deprecated YAML field compatibility. */
-  has_all?: string[];
-  /** @deprecated YAML field compatibility. */
-  has_any?: string[];
-  /** @deprecated YAML field compatibility. */
-  flags_contain?: string[];
-  /** @deprecated YAML field compatibility. */
-  unless_path?: string[] | true;
-  /** @deprecated YAML field compatibility. */
-  path_is?: string | string[];
   pattern?: string;
   compiled?: RegExp;
-  rule_id: string;
+  ruleId: string;
 };
 export type Pack = {
   id: string;
@@ -75,6 +66,8 @@ export function loadPacks(
   return result;
 }
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
+const severity = (value: unknown): Severity | undefined =>
+  value === undefined ? "medium" : isSeverity(value) ? value : undefined;
 function compileRule(pack: string, raw: Record<string, unknown>): Rule {
   const name = String(raw.name ?? raw.id ?? "unnamed");
   let compiled: RegExp | undefined;
@@ -85,10 +78,12 @@ function compileRule(pack: string, raw: Record<string, unknown>): Rule {
       /* skip bad regex */
     }
   }
+  const ruleSeverity = severity(raw.severity);
+  if (!ruleSeverity) throw new Error(`invalid severity for ${name}`);
   return {
     name,
     command: raw.command == null ? undefined : String(raw.command),
-    severity: String(raw.severity ?? "medium"),
+    severity: ruleSeverity,
     reason: String(raw.reason ?? raw.description ?? ""),
     hasAll: list(raw.has_all),
     hasAny: list(raw.has_any),
@@ -103,6 +98,6 @@ function compileRule(pack: string, raw: Record<string, unknown>): Rule {
           : String(raw.path_is),
     pattern: raw.pattern == null ? undefined : String(raw.pattern),
     compiled,
-    rule_id: `${pack}:${name}`,
+    ruleId: `${pack}:${name}`,
   };
 }

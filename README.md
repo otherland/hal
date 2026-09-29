@@ -161,8 +161,10 @@ hal test "git reset --hard"        # BLOCKED
 hal test "git commit -m 'fix'"     # ALLOWED
 hal test "sudo rm -rf /"           # BLOCKED
 hal test "rm -rf node_modules"     # ALLOWED
-
 ```
+
+Run `hal --help` to list commands or `hal --version` to print the installed
+version.
 
 ## Packs
 

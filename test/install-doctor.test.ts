@@ -23,9 +23,14 @@ const run = (cwd: string, args: string[], env: Record<string, string> = {}) =>
     },
   );
 
+const initializeRepo = (directory: string): void => {
+  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+};
+
 test("install creates Copilot hook and Claude project settings", () => {
   const d = temp();
   try {
+    initializeRepo(d);
     run(d, ["install"]);
     const copilot = JSON.parse(
       fs.readFileSync(path.join(d, ".github/hooks/hal.json"), "utf8"),
@@ -46,6 +51,7 @@ test("install creates Copilot hook and Claude project settings", () => {
 test("Claude install merges unrelated hooks, updates HAL, and supports no-configure", () => {
   const d = temp();
   try {
+    initializeRepo(d);
     fs.mkdirSync(path.join(d, ".claude"), { recursive: true });
     fs.writeFileSync(
       path.join(d, ".claude/settings.json"),
@@ -91,6 +97,7 @@ test("Claude install merges unrelated hooks, updates HAL, and supports no-config
 test("doctor reports missing, invalid, untrusted, and trusted repositories", () => {
   const d = temp();
   try {
+    initializeRepo(d);
     assert.throws(() => run(d, ["doctor"]));
     run(d, ["install"]);
     assert.throws(() => run(d, ["doctor"]));
@@ -106,6 +113,24 @@ test("doctor reports missing, invalid, untrusted, and trusted repositories", () 
     );
     const output = run(d, ["doctor"], { HOME: home });
     assert.match(output, /configured and trusted/);
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("CLI shows help and reports installation failures", () => {
+  const d = temp();
+  try {
+    assert.match(run(d, ["--help"]), /Usage: hal/);
+    assert.match(run(d, ["--version"]), /^0\.1\.1\n$/);
+    assert.throws(
+      () => run(d, ["unknown-command"]),
+      /unknown command: unknown-command/,
+    );
+    assert.throws(
+      () => run(d, ["install"]),
+      /must be run inside a Git repository/,
+    );
   } finally {
     fs.rmSync(d, { recursive: true, force: true });
   }

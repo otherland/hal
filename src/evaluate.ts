@@ -1,7 +1,9 @@
 import path from "node:path";
 import type { Pack, Rule } from "./packs.js";
+import { DEFAULT_CONFIG, type Config } from "./config.js";
+import type { Severity } from "./types.js";
 
-const LONG: Record<string, string[]> = {
+const LONG_FLAGS: Record<string, string[]> = {
   "--recursive": ["-r", "-R"],
   "--force": ["-f"],
   "--verbose": ["-v"],
@@ -11,7 +13,7 @@ const LONG: Record<string, string[]> = {
   "--no-preserve-root": ["--no-preserve-root"],
 };
 const SHORT_TO_LONG: Record<string, string> = Object.fromEntries(
-  Object.entries(LONG).flatMap(([long, shorts]) =>
+  Object.entries(LONG_FLAGS).flatMap(([long, shorts]) =>
     shorts.filter((short) => short !== long).map((short) => [short, long]),
   ),
 );
@@ -20,7 +22,7 @@ const BINARIES = new Set(
     " ",
   ),
 );
-const ORDER: Record<string, number> = {
+const SEVERITY_ORDER: Record<Severity, number> = {
   info: 0,
   low: 1,
   medium: 2,
@@ -28,37 +30,13 @@ const ORDER: Record<string, number> = {
   high: 4,
   block: 5,
 };
-export type Config = {
-  packs: string[];
-  packDirs?: string[];
-  allow: string[];
-  allowRules?: string[];
-  allowPrefixes?: string[];
-  severityThreshold?: string;
-  /** @deprecated YAML field compatibility. */
-  pack_dirs?: string[];
-  /** @deprecated YAML field compatibility. */
-  allow_rules?: string[];
-  /** @deprecated YAML field compatibility. */
-  allow_prefixes?: string[];
-  /** @deprecated YAML field compatibility. */
-  severity_threshold?: string;
-};
-export type Decision = {
+export type Verdict = {
   action: "allow" | "block";
-  rule_id: string;
+  ruleId?: string;
   reason: string;
-  severity: string;
+  severity?: Severity;
   command: string;
 };
-
-const configValue = (config: Config) => ({
-  allow: config.allow,
-  allowRules: config.allowRules ?? config.allow_rules ?? [],
-  allowPrefixes: config.allowPrefixes ?? config.allow_prefixes ?? [],
-  severityThreshold:
-    config.severityThreshold ?? config.severity_threshold ?? "warn",
-});
 
 export function shellSplit(s: string): string[] {
   const out: string[] = [];
@@ -135,7 +113,7 @@ export function flags(tokens: string[]): Set<string> {
       out.add(t);
       const base = t.split("=")[0];
       if (base !== t) out.add(base);
-      if (LONG[base]) LONG[base].forEach((x) => out.add(x));
+      if (LONG_FLAGS[base]) LONG_FLAGS[base].forEach((x) => out.add(x));
       if (SHORT_TO_LONG[base]) out.add(SHORT_TO_LONG[base]);
       if (!t.startsWith("--") && t.length > 2) {
         for (const x of t.slice(1)) {
@@ -171,71 +149,79 @@ const hasExemption = (
   exemptions: string[] | undefined,
   tokens: Set<string>,
 ): boolean => (exemptions ?? []).some((token) => tokens.has(token));
-export function match(tokens: string[], fs: Set<string>, r: Rule): boolean {
-  if (!tokens.length || (r.command && tokens[0] !== r.command)) return false;
-  const hasAll = r.hasAll ?? r.has_all ?? [];
-  const hasAny = r.hasAny ?? r.has_any ?? [];
-  const flagsContain = r.flagsContain ?? r.flags_contain ?? [];
-  const unlessPath = r.unlessPath ?? r.unless_path;
-  const pathIs = r.pathIs ?? r.path_is;
-  const all = new Set(tokens),
-    combined = new Set([...all, ...fs]);
-  if (hasMissingTokens(hasAll, all) || hasNoMatchingToken(hasAny, combined))
+export function match(tokens: string[], flags: Set<string>, rule: Rule): boolean {
+  if (!tokens.length || (rule.command && tokens[0] !== rule.command))
     return false;
-  if (hasMissingFlags(flagsContain, fs) || hasExemption(r.unless, combined))
+  const tokenSet = new Set(tokens);
+  const combinedTokens = new Set([...tokenSet, ...flags]);
+  if (
+    hasMissingTokens(rule.hasAll ?? [], tokenSet) ||
+    hasNoMatchingToken(rule.hasAny ?? [], combinedTokens)
+  )
     return false;
-  if (unlessPath) {
+  if (
+    hasMissingFlags(rule.flagsContain ?? [], flags) ||
+    hasExemption(rule.unless, combinedTokens)
+  )
+    return false;
+  const safePaths = rule.unlessPath;
+  if (safePaths) {
     for (const p of pathArgs(tokens)) {
       if (p.includes("..")) {
-        if (unlessPath === true) return true;
+        if (safePaths === true) return true;
         continue;
       }
     }
     if (
-      Array.isArray(unlessPath) &&
+      Array.isArray(safePaths) &&
       pathArgs(tokens).length > 0 &&
       !pathArgs(tokens).some((p) => p.includes("..")) &&
       pathArgs(tokens).every((p) =>
-        unlessPath.some((pattern) => glob(normalizePath(p), pattern)),
+        safePaths.some((pattern) => glob(normalizePath(p), pattern)),
       )
     )
       return false;
   }
   return (
-    !pathIs ||
+    !rule.pathIs ||
     pathArgs(tokens).some((p) => {
       const normalized = normalizePath(p);
-      return Array.isArray(pathIs)
-        ? pathIs.includes(normalized)
-        : normalized === pathIs;
+      return Array.isArray(rule.pathIs)
+        ? rule.pathIs.includes(normalized)
+        : normalized === rule.pathIs;
     })
   );
 }
-function sanitize(t: string[]): string {
-  if (!t.length) return "";
-  const cmd = t[0],
-    data = new Set(["echo", "printf"]),
-    flagsData: Record<string, Set<string>> = {
-      git: new Set(["-m", "--message", "--grep"]),
-      grep: new Set(["-e", "--regexp"]),
-      rg: new Set(["-e", "--regexp"]),
-      curl: new Set(["-d", "--data", "-H", "--header"]),
-      gh: new Set(["-t", "--title", "-b", "--body"]),
-    };
+const DATA_COMMANDS = new Set(["echo", "printf"]);
+const DATA_FLAGS: Record<string, Set<string>> = {
+  git: new Set(["-m", "--message", "--grep"]),
+  grep: new Set(["-e", "--regexp"]),
+  rg: new Set(["-e", "--regexp"]),
+  curl: new Set(["-d", "--data", "-H", "--header"]),
+  gh: new Set(["-t", "--title", "-b", "--body"]),
+};
+function sanitize(tokens: string[]): string {
+  if (!tokens.length) return "";
+  const command = tokens[0];
   let skip = false;
-  return t
-    .map((x, i) => {
+  return tokens
+    .map((token, index) => {
       if (skip) {
         skip = false;
-        return "_".repeat(x.length);
+        return "_".repeat(token.length);
       }
-      if (i > 0 && data.has(cmd) && !x.includes("$(") && !x.includes("`"))
-        return "_".repeat(x.length);
-      if (flagsData[cmd]?.has(x)) {
+      if (
+        index > 0 &&
+        DATA_COMMANDS.has(command) &&
+        !token.includes("$(") &&
+        !token.includes("`")
+      )
+        return "_".repeat(token.length);
+      if (DATA_FLAGS[command]?.has(token)) {
         skip = true;
-        return x;
+        return token;
       }
-      return x;
+      return token;
     })
     .join(" ");
 }
@@ -260,21 +246,21 @@ function segments(s: string): string[] {
   if (cur.trim()) out.push(cur.trim());
   return out;
 }
-const inline = (t: string[]) => {
-  const map: Record<string, string> = {
-      bash: "-c",
-      sh: "-c",
-      zsh: "-c",
-      fish: "-c",
-      python: "-c",
-      python3: "-c",
-      ruby: "-e",
-      perl: "-e",
-      node: "-e",
-    },
-    f = map[t[0]];
-  const i = f ? t.indexOf(f) : -1;
-  return i >= 0 ? t[i + 1] : undefined;
+const INLINE_SCRIPT_FLAGS: Record<string, string> = {
+  bash: "-c",
+  sh: "-c",
+  zsh: "-c",
+  fish: "-c",
+  python: "-c",
+  python3: "-c",
+  ruby: "-e",
+  perl: "-e",
+  node: "-e",
+};
+const inline = (tokens: string[]) => {
+  const flag = INLINE_SCRIPT_FLAGS[tokens[0]];
+  const index = flag ? tokens.indexOf(flag) : -1;
+  return index >= 0 ? tokens[index + 1] : undefined;
 };
 const interpreters = new Set([
   "bash",
@@ -314,65 +300,55 @@ function heredoc(command: string): string | undefined {
 export function evaluate(
   command: string,
   packs: Pack[],
-  config: Config = {
-    packs: [],
-    packDirs: [],
-    allow: [],
-    allowRules: [],
-    allowPrefixes: [],
-    severityThreshold: "warn",
-  },
+  config: Config = DEFAULT_CONFIG,
   depth = 0,
-): Decision {
+): Verdict {
   const allow = {
     action: "allow" as const,
-    rule_id: "",
     reason: "",
-    severity: "",
     command,
   };
-  const settings = configValue(config);
-  if (isAllowed(command, settings)) return allow;
-  if (depth < 1) {
-    const body = heredoc(command);
-    if (body)
-      for (const line of body.split("\n")) {
-        const d = evaluate(line.trim(), packs, config, depth + 1);
-        if (d.action === "block") return d;
-      }
+  if (isAllowed(command, config)) return allow;
+  const heredocBody = depth < 1 ? heredoc(command) : undefined;
+  if (heredocBody) {
+    for (const line of heredocBody.split("\n")) {
+      const verdict = evaluate(line.trim(), packs, config, depth + 1);
+      if (verdict.action === "block") return verdict;
+    }
   }
   const activePacks =
     config.packs.length > 0
       ? packs.filter((pack) => config.packs.includes(pack.id))
       : packs;
   for (const seg of segments(command)) {
-    const t = normalize(shellSplit(seg));
-    if (!t.length) continue;
-    const f = flags(t);
-    for (const p of activePacks) {
-      if (p.keywords.length && !p.keywords.includes(t[0])) continue;
-      for (const r of p.rules) {
-        if (isBelowThreshold(r, settings.severityThreshold)) continue;
-        let hit = match(t, f, r);
-        if (!hit && r.compiled)
-          hit = r.compiled.test(sanitize(t)) || r.compiled.test(seg);
-        if (hit && !settings.allowRules.includes(r.rule_id))
+    const tokens = normalize(shellSplit(seg));
+    if (!tokens.length) continue;
+    const commandFlags = flags(tokens);
+    for (const pack of activePacks) {
+      if (pack.keywords.length && !pack.keywords.includes(tokens[0])) continue;
+      for (const rule of pack.rules) {
+        if (isBelowThreshold(rule, config.severityThreshold)) continue;
+        let matches = match(tokens, commandFlags, rule);
+        if (!matches && rule.compiled)
+          matches =
+            rule.compiled.test(sanitize(tokens)) || rule.compiled.test(seg);
+        if (matches && !config.allowRules.includes(rule.ruleId))
           return {
             action: "block",
-            rule_id: r.rule_id,
-            reason: r.reason,
-            severity: r.severity,
+            ruleId: rule.ruleId,
+            reason: rule.reason,
+            severity: rule.severity,
             command: seg,
           };
       }
     }
     if (depth < 1) {
-      const sub = inline(t);
+      const sub = inline(tokens);
       if (sub) {
         const d = evaluate(sub, packs, config, depth + 1);
         if (d.action === "block") return d;
       }
-      const body = heredoc(seg);
+      const body = heredocBody ? undefined : heredoc(seg);
       if (body) {
         for (const line of body.split("\n")) {
           const d = evaluate(line.trim(), packs, config, depth + 1);
@@ -383,12 +359,9 @@ export function evaluate(
   }
   return allow;
 }
-const isAllowed = (
-  command: string,
-  settings: ReturnType<typeof configValue>,
-): boolean =>
+const isAllowed = (command: string, config: Config): boolean =>
   !command.trim() ||
-  settings.allow.some((value) => command.trim() === value) ||
-  settings.allowPrefixes.some((value) => command.trim().startsWith(value));
-const isBelowThreshold = (rule: Rule, threshold: string): boolean =>
-  (ORDER[rule.severity] ?? 2) < (ORDER[threshold] ?? 3);
+  config.allow.some((value) => command.trim() === value) ||
+  config.allowPrefixes.some((value) => command.trim().startsWith(value));
+const isBelowThreshold = (rule: Rule, threshold: Severity): boolean =>
+  SEVERITY_ORDER[rule.severity] < SEVERITY_ORDER[threshold];

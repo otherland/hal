@@ -49,12 +49,10 @@ test("formats deny and ask decisions for both protocols", () => {
   );
   assert.equal(copilot.continue, false);
   assert.equal(copilot.permissionDecision, "deny");
-  assert.equal(copilot.rule, "core.git:push-force");
   const claude = JSON.parse(
     decisionOutput(CLAUDE, "ask", "test:warn", "careful"),
   );
   assert.equal(claude.hookSpecificOutput.permissionDecision, "ask");
-  assert.equal(claude.hookSpecificOutput.rule, "test:warn");
 });
 
 test("CLI hook protocol fails open and emits decisions", () => {

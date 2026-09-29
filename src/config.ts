@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import type { Config } from "./evaluate.js";
+import { isSeverity, type Severity } from "./types.js";
 
 interface RawConfig {
   packs?: unknown;
@@ -12,8 +12,28 @@ interface RawConfig {
   severity_threshold?: unknown;
 }
 
+export interface Config {
+  packs: string[];
+  packDirs: string[];
+  allow: string[];
+  allowRules: string[];
+  allowPrefixes: string[];
+  severityThreshold: Severity;
+}
+
+export const DEFAULT_CONFIG: Config = {
+  packs: [],
+  packDirs: [],
+  allow: [],
+  allowRules: [],
+  allowPrefixes: [],
+  severityThreshold: "warn",
+};
+
 const stringList = (value: unknown): string[] =>
   Array.isArray(value) ? value.map(String) : [];
+const severity = (value: unknown): Severity =>
+  isSeverity(value) ? value : DEFAULT_CONFIG.severityThreshold;
 
 export function loadConfig(cwd = process.cwd()): Config {
   const values: RawConfig = {};
@@ -43,11 +63,6 @@ export function loadConfig(cwd = process.cwd()): Config {
     allow: stringList(values.allow),
     allowRules: stringList(values.allow_rules),
     allowPrefixes: stringList(values.allow_prefixes),
-    severityThreshold: String(values.severity_threshold ?? "warn"),
-    // Keep the public object compatible with existing YAML-era callers.
-    pack_dirs: stringList(values.pack_dirs),
-    allow_rules: stringList(values.allow_rules),
-    allow_prefixes: stringList(values.allow_prefixes),
-    severity_threshold: String(values.severity_threshold ?? "warn"),
+    severityThreshold: severity(values.severity_threshold),
   };
 }
