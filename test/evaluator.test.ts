@@ -93,7 +93,7 @@ test("rule matching handles all/any flags, exemptions, paths, and keywords", () 
     match(
       ["git", "push", "--dry-run"],
       flags(["git", "push", "--dry-run"]),
-      rule({ command: "git", has_all: ["push"], unless: ["--dry-run"] }),
+      rule({ command: "git", hasAll: ["push"], unless: ["--dry-run"] }),
     ),
     false,
   );
@@ -216,11 +216,7 @@ test("built-in packs cover destructive operations and safe exceptions", () => {
 
 test("allow commands are exact while custom packs retain built-ins", () => {
   assert.equal(
-    evaluate(
-      "git push --force",
-      packs,
-      config({ allow: ["git push"] }),
-    ).action,
+    evaluate("git push --force", packs, config({ allow: ["git push"] })).action,
     "block",
   );
   assert.equal(

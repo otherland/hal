@@ -54,6 +54,19 @@ test("built-in and multiple custom pack directories load", () => {
   }
 });
 
+test("invalid rule severity rejects the malformed pack", () => {
+  const d = temp();
+  try {
+    fs.writeFileSync(
+      path.join(d, "invalid.yaml"),
+      "id: invalid\nrules: [{id: unsafe, severity: critical}]\n",
+    );
+    assert.deepEqual(loadPacks([d]), []);
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("pack ids, rule id fallbacks, keywords, and nonexistent dirs are stable", () => {
   const d = temp();
   try {
@@ -75,10 +88,14 @@ test("selected pack ids filter built-ins and custom packs", () => {
   const d = temp();
   try {
     fs.writeFileSync(path.join(d, "custom.yaml"), "id: custom\nrules: []\n");
-    assert.deepEqual(loadPacks(undefined, ["core.git"]).map((p) => p.id), [
-      "core.git",
-    ]);
-    assert.deepEqual(loadPacks([d], ["custom"]).map((p) => p.id), ["custom"]);
+    assert.deepEqual(
+      loadPacks(undefined, ["core.git"]).map((p) => p.id),
+      ["core.git"],
+    );
+    assert.deepEqual(
+      loadPacks([d], ["custom"]).map((p) => p.id),
+      ["custom"],
+    );
   } finally {
     fs.rmSync(d, { recursive: true, force: true });
   }

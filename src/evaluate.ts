@@ -39,72 +39,82 @@ export type Verdict = {
 };
 
 export function shellSplit(s: string): string[] {
-  const out: string[] = [];
-  let cur = "",
-    quote = "",
-    esc = false;
-  for (const c of s) {
-    if (esc) {
-      cur += c;
-      esc = false;
-    } else if (c === "\\" && quote !== "'") esc = true;
-    else if (quote) {
-      if (c === quote) quote = "";
-      else cur += c;
-    } else if (c === "'" || c === '"') quote = c;
-    else if (/\s/.test(c)) {
-      if (cur) {
-        out.push(cur);
-        cur = "";
+  const tokens: string[] = [];
+  let token = "";
+  let quote = "";
+  let escaping = false;
+
+  for (const character of s) {
+    if (escaping) {
+      token += character;
+      escaping = false;
+    } else if (character === "\\" && quote !== "'") {
+      escaping = true;
+    } else if (quote) {
+      if (character === quote) quote = "";
+      else token += character;
+    } else if (character === "'" || character === '"') {
+      quote = character;
+    } else if (/\s/.test(character)) {
+      if (token) {
+        tokens.push(token);
+        token = "";
       }
-    } else cur += c;
+    } else {
+      token += character;
+    }
   }
-  if (esc) cur += "\\";
-  if (cur) out.push(cur);
-  return out;
+  if (escaping) token += "\\";
+  if (token) tokens.push(token);
+  return tokens;
 }
 export function normalize(input: string[]): string[] {
-  let t = [...input],
-    changed = true;
-  while (changed && t.length) {
+  const tokens = [...input];
+  let changed = true;
+
+  while (changed && tokens.length) {
     changed = false;
-    if (t[0].startsWith("\\") && t[0].length > 1) {
-      t[0] = t[0].slice(1);
+    if (tokens[0].startsWith("\\") && tokens[0].length > 1) {
+      tokens[0] = tokens[0].slice(1);
       changed = true;
       continue;
     }
-    if (t[0] === "sudo" || t[0] === "env" || t[0] === "command") {
-      if (t[0] === "command" && ["-v", "-V"].includes(t[1])) break;
-      const kind = String(t.shift());
+    if (
+      tokens[0] === "sudo" ||
+      tokens[0] === "env" ||
+      tokens[0] === "command"
+    ) {
+      if (tokens[0] === "command" && ["-v", "-V"].includes(tokens[1])) break;
+      const wrapper = String(tokens.shift());
       changed = true;
-      while (t.length) {
-        const next = String(t[0]);
+      while (tokens.length) {
+        const next = String(tokens[0]);
         if (
-          (kind === "sudo" && ["-u", "-g"].includes(next)) ||
-          (kind === "env" && next === "-u")
+          (wrapper === "sudo" && ["-u", "-g"].includes(next)) ||
+          (wrapper === "env" && next === "-u")
         )
-          t.splice(0, 2);
+          tokens.splice(0, 2);
         else if (
-          (kind === "env" && !next.startsWith("-") && next.includes("=")) ||
+          (wrapper === "env" && !next.startsWith("-") && next.includes("=")) ||
           (next.startsWith("-") && next !== "--")
         )
-          t.shift();
+          tokens.shift();
         else if (next === "--") {
-          t.shift();
+          tokens.shift();
           break;
         } else break;
       }
       continue;
     }
-    if (t[0].includes("/")) {
-      const b = path.basename(t[0]);
-      if (BINARIES.has(b)) {
-        t[0] = b;
+    if (tokens[0].includes("/")) {
+      const binary = path.basename(tokens[0]);
+      if (BINARIES.has(binary)) {
+        tokens[0] = binary;
         changed = true;
       }
     }
   }
-  return t;
+  return tokens;
 }
 export function flags(tokens: string[]): Set<string> {
   const out = new Set<string>();
@@ -149,7 +159,11 @@ const hasExemption = (
   exemptions: string[] | undefined,
   tokens: Set<string>,
 ): boolean => (exemptions ?? []).some((token) => tokens.has(token));
-export function match(tokens: string[], flags: Set<string>, rule: Rule): boolean {
+export function match(
+  tokens: string[],
+  flags: Set<string>,
+  rule: Rule,
+): boolean {
   if (!tokens.length || (rule.command && tokens[0] !== rule.command))
     return false;
   const tokenSet = new Set(tokens);
@@ -226,25 +240,28 @@ function sanitize(tokens: string[]): string {
     .join(" ");
 }
 function segments(s: string): string[] {
-  const out: string[] = [];
-  let cur = "",
-    q = "";
+  const commandSegments: string[] = [];
+  let segment = "";
+  let quote = "";
   for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (c === "'" || c === '"') {
-      if (!q) q = c;
-      else if (q === c) q = "";
-      cur += c;
+    const character = s[i];
+    if (character === "'" || character === '"') {
+      if (!quote) quote = character;
+      else if (quote === character) quote = "";
+      segment += character;
       continue;
     }
-    if (!q && (c === ";" || c === "|" || c === "&")) {
-      if (s[i + 1] === c) i++;
-      if (cur.trim()) out.push(cur.trim());
-      cur = "";
-    } else cur += c;
+    if (
+      !quote &&
+      (character === ";" || character === "|" || character === "&")
+    ) {
+      if (s[i + 1] === character) i++;
+      if (segment.trim()) commandSegments.push(segment.trim());
+      segment = "";
+    } else segment += character;
   }
-  if (cur.trim()) out.push(cur.trim());
-  return out;
+  if (segment.trim()) commandSegments.push(segment.trim());
+  return commandSegments;
 }
 const INLINE_SCRIPT_FLAGS: Record<string, string> = {
   bash: "-c",

@@ -29,6 +29,19 @@ test("project configuration loads and preserves list values", () => {
   }
 });
 
+test("invalid severity values fall back to the safe default", () => {
+  const d = temp();
+  try {
+    fs.writeFileSync(
+      path.join(d, ".hal.yaml"),
+      "severity_threshold: critical\n",
+    );
+    assert.equal(loadConfig(d).severityThreshold, "warn");
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("project lists merge with global lists", () => {
   const home = temp(),
     project = temp();
