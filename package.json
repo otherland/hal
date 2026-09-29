@@ -1,6 +1,6 @@
 {
   "name": "harmfulactionlimiter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "HAL — Harmful Action Limiter (TypeScript implementation)",
   "license": "MIT",
   "type": "module",

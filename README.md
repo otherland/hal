@@ -61,7 +61,7 @@ Rules are plain YAML. No regex, no code:
   has_all: [push]
   has_any: [--force, -f]
   unless: [--force-with-lease]
-  severity: critical
+  severity: block
   reason: "Rewrites remote history. Use --force-with-lease instead."
 ```
 
@@ -170,13 +170,13 @@ version.
 
 HAL ships with five rule packs:
 
-| Pack | Covers |
-|------|--------|
-| `core.git` | `reset --hard`, `push --force`, `clean -f`, `stash clear`, `branch -D` |
-| `core.filesystem` | `rm -rf` (except safe paths like `/tmp`, `node_modules`), `chmod 777`, `chown -R` |
-| `containers.docker` | `system prune -a`, `volume prune`, `rm -f`, `stop $(docker ps)`, `compose down -v` |
-| `cloud.aws` | `s3 rm --recursive`, `ec2 terminate`, `rds delete`, `dynamodb delete-table`, `iam delete-*` |
-| `cloud.azure` | `group delete`, `vm delete`, `storage account delete`, `aks delete`, `keyvault purge` |
+| Pack                | Covers                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| `core.git`          | `reset --hard`, `push --force`, `clean -f`, `stash clear`, `branch -D`                      |
+| `core.filesystem`   | `rm -rf` (except safe paths like `/tmp`, `node_modules`), `chmod 777`, `chown -R`           |
+| `containers.docker` | `system prune -a`, `volume prune`, `rm -f`, `stop $(docker ps)`, `compose down -v`          |
+| `cloud.aws`         | `s3 rm --recursive`, `ec2 terminate`, `rds delete`, `dynamodb delete-table`, `iam delete-*` |
+| `cloud.azure`       | `group delete`, `vm delete`, `storage account delete`, `aks delete`, `keyvault purge`       |
 
 All packs enabled by default. No configuration required.
 
@@ -186,9 +186,9 @@ All packs enabled by default. No configuration required.
 
 ```yaml
 packs: [core.git, core.filesystem, containers.docker, cloud.aws, cloud.azure]
-allow: []                # Exact commands to always allow
-allow_rules: []          # Rule IDs to disable (e.g. "core.git:push-force")
-allow_prefixes: []       # Raw command prefixes to allow
+allow: [] # Exact commands to always allow
+allow_rules: [] # Rule IDs to disable (e.g. "core.git:push-force")
+allow_prefixes: [] # Raw command prefixes to allow
 severity_threshold: warn # Warn and block at this level and above
 ```
 
@@ -198,6 +198,9 @@ Project-level overrides: `.hal.yaml` in your repo root (merged with global, proj
 `pack_dirs` adds custom pack directories alongside the built-in packs. The
 `allow` list is exact-match only; use `allow_prefixes` when a raw prefix is
 intended.
+
+Rules with `severity: block` deny a command. Rules with `severity: warn` ask
+the agent to get confirmation before continuing.
 
 ## Design principles
 

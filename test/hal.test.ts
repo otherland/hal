@@ -16,15 +16,15 @@ import {
 
 const packs = loadPacks();
 it("blocks destructive commands and allows safe exceptions", () => {
-  assert.equal(evaluate("git push --force", packs).action, "block");
+  assert.equal(evaluate("git push --force", packs).action, "deny");
   assert.equal(evaluate("git push --force-with-lease", packs).action, "allow");
   assert.equal(evaluate("rm -rf node_modules", packs).action, "allow");
 });
 it("evaluates heredocs and preserves hook protocol extraction", () => {
-  assert.equal(evaluate("bash <<EOF\nrm -rf /\nEOF", packs).action, "block");
+  assert.equal(evaluate("bash <<EOF\nrm -rf /\nEOF", packs).action, "deny");
   assert.equal(
     evaluate("cat <<'END' | sh\ngit push --force\nEND", packs).action,
-    "block",
+    "deny",
   );
   assert.equal(
     extractCommand({ toolInput: { command: "git push --force" } }),
@@ -42,7 +42,7 @@ it("handles command segmentation, wrappers, and regex-safe data", () => {
     evaluate("echo 'git push --force' && git status", packs).action,
     "allow",
   );
-  assert.equal(evaluate("sudo env CI=1 git clean -f", packs).action, "block");
+  assert.equal(evaluate("sudo env CI=1 git clean -f", packs).action, "deny");
   assert.equal(evaluate("git commit -m 'rm -rf /'", packs).action, "allow");
 });
 it("formats Copilot and Claude decisions", () => {

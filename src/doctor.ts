@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { repoRoot } from "./install.js";
+import type { PackDiagnostic } from "./packs.js";
 
 interface CopilotConfig {
   trustedFolders?: unknown;
@@ -32,7 +33,7 @@ function isTrusted(root: string, configFile: string): string {
   }
 }
 
-export function doctor(): number {
+export function doctor(diagnostics: readonly PackDiagnostic[] = []): number {
   const root = repoRoot();
   const file = path.join(root, ".github", "hooks", "hal.json");
   console.log("HAL doctor\n");
@@ -66,6 +67,10 @@ export function doctor(): number {
     ? "GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS is enabled"
     : isTrusted(root, configFile);
   if (override || reason.startsWith("trusted by")) {
+    if (diagnostics.length) {
+      console.log(formatDiagnostics(diagnostics));
+      return 1;
+    }
     console.log(
       `✓ repository trust: ${reason}\n\nStatus: configured and trusted`,
     );
@@ -75,4 +80,11 @@ export function doctor(): number {
     `! repository trust: ${reason}\n\nStatus: configured-but-untrusted\nAction: trust this repository before unattended Copilot use`,
   );
   return 1;
+}
+
+function formatDiagnostics(diagnostics: readonly PackDiagnostic[]): string {
+  const messages = diagnostics
+    .map((diagnostic) => `! pack: ${diagnostic.file}: ${diagnostic.message}`)
+    .join("\n");
+  return `${messages}\n\nStatus: configured with invalid pack rules`;
 }

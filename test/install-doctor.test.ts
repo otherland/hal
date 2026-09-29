@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -9,6 +9,25 @@ const temp = () =>
   fs.mkdtempSync(path.join(path.dirname(process.cwd()), ".hal-test-"));
 const run = (cwd: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync(
+    process.execPath,
+    [
+      "--import",
+      path.join(root, "node_modules/tsx/dist/loader.mjs"),
+      path.join(root, "src/cli.ts"),
+      ...args,
+    ],
+    {
+      cwd,
+      env: { ...process.env, HAL_PATH: "/usr/bin/hal", ...env },
+      encoding: "utf8",
+    },
+  );
+const runWithOutput = (
+  cwd: string,
+  args: string[],
+  env: Record<string, string> = {},
+) =>
+  spawnSync(
     process.execPath,
     [
       "--import",
@@ -122,7 +141,7 @@ test("CLI shows help and reports installation failures", () => {
   const d = temp();
   try {
     assert.match(run(d, ["--help"]), /Usage: hal/);
-    assert.match(run(d, ["--version"]), /^0\.1\.1\n$/);
+    assert.match(run(d, ["--version"]), /^0\.1\.2\n$/);
     assert.throws(
       () => run(d, ["unknown-command"]),
       /unknown command: unknown-command/,
@@ -131,6 +150,47 @@ test("CLI shows help and reports installation failures", () => {
       () => run(d, ["install"]),
       /must be run inside a Git repository/,
     );
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("CLI distinguishes confirmation from a denied command", () => {
+  const d = temp();
+  try {
+    assert.match(run(d, ["test", "git branch -D feature"]), /CONFIRM/);
+    const denied = runWithOutput(d, ["test", "git push --force"]);
+    assert.equal(denied.status, 1);
+    assert.match(denied.stdout, /BLOCKED/);
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports invalid configured pack rules without disabling valid rules", () => {
+  const d = temp();
+  try {
+    initializeRepo(d);
+    run(d, ["install"]);
+    const home = path.join(d, "home");
+    fs.mkdirSync(path.join(home, ".copilot"), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, ".copilot/config.json"),
+      JSON.stringify({ trustedFolders: [d] }),
+    );
+    fs.mkdirSync(path.join(d, "packs"));
+    fs.writeFileSync(
+      path.join(d, "packs", "custom.yaml"),
+      "id: custom\nkeywords: [erase]\nrules: [{id: invalid, severity: critical}, {id: valid, command: erase, severity: block}]\n",
+    );
+    fs.writeFileSync(path.join(d, ".hal.yaml"), "pack_dirs: [packs]\n");
+    const doctor = runWithOutput(d, ["doctor"], { HOME: home });
+    assert.equal(doctor.status, 1);
+    assert.match(doctor.stdout, /invalid severity/);
+    const testCommand = runWithOutput(d, ["test", "erase"], { HOME: home });
+    assert.equal(testCommand.status, 1);
+    assert.match(testCommand.stdout, /BLOCKED/);
+    assert.match(testCommand.stderr, /invalid severity/);
   } finally {
     fs.rmSync(d, { recursive: true, force: true });
   }
