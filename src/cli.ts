@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import { parseArgs } from "node:util";
+import packageJson from "../package.json" with { type: "json" };
 import { loadConfig } from "./config.js";
 import { evaluate } from "./evaluate.js";
 import {
@@ -9,11 +10,11 @@ import {
   decisionOutput,
   isHookPayload,
 } from "./hook.js";
-import { loadPacks } from "./packs.js";
+import { loadPacks, type PackDiagnostic } from "./packs.js";
 import { doctor } from "./doctor.js";
 import { install } from "./install.js";
 
-const VERSION = "0.1.1";
+const VERSION = packageJson.version;
 
 function usage(): void {
   console.log(`Usage: hal <command>
@@ -26,19 +27,37 @@ Commands:
   hal --version`);
 }
 
-function evaluateCommand(command: string): void {
+function loadEvaluationInputs(): {
+  config: ReturnType<typeof loadConfig>;
+  packs: ReturnType<typeof loadPacks>;
+  diagnostics: PackDiagnostic[];
+} {
   const config = loadConfig();
+  const diagnostics: PackDiagnostic[] = [];
   const packs = [
-    ...loadPacks(undefined, config.packs),
-    ...loadPacks(config.packDirs, config.packs),
+    ...loadPacks(undefined, config.packs, diagnostics),
+    ...loadPacks(config.packDirs, config.packs, diagnostics),
   ];
+  return { config, packs, diagnostics };
+}
+
+function printDiagnostics(diagnostics: readonly PackDiagnostic[]): void {
+  for (const diagnostic of diagnostics)
+    console.error(`hal: ${diagnostic.file}: ${diagnostic.message}`);
+}
+
+function evaluateCommand(command: string): void {
+  const { config, packs, diagnostics } = loadEvaluationInputs();
+  printDiagnostics(diagnostics);
   const verdict = evaluate(command, packs, config);
   console.log(
-    verdict.action === "block"
+    verdict.action === "deny"
       ? `✗ BLOCKED  ${verdict.command}\n  rule: ${verdict.ruleId}\n  reason: ${verdict.reason}\n  severity: ${verdict.severity}`
-      : `✓ ALLOWED  ${command}`,
+      : verdict.action === "ask"
+        ? `! CONFIRM  ${verdict.command}\n  rule: ${verdict.ruleId}\n  reason: ${verdict.reason}\n  severity: ${verdict.severity}`
+        : `✓ ALLOWED  ${command}`,
   );
-  process.exitCode = verdict.action === "block" ? 1 : 0;
+  process.exitCode = verdict.action === "deny" ? 1 : 0;
 }
 
 function runHook(): void {
@@ -49,19 +68,13 @@ function runHook(): void {
     if (!isHookPayload(parsed)) return;
     const command = extractCommand(parsed);
     if (!command) return;
-    const config = loadConfig();
-    const packs = [
-      ...loadPacks(undefined, config.packs),
-      ...loadPacks(config.packDirs, config.packs),
-    ];
+    const { config, packs } = loadEvaluationInputs();
     const verdict = evaluate(command, packs, config);
-    if (verdict.action === "block")
+    if (verdict.action !== "allow")
       console.log(
         decisionOutput(
           detectProtocol(parsed),
-          verdict.severity === "block" || verdict.severity === "high"
-            ? "deny"
-            : "ask",
+          verdict.action,
           verdict.ruleId ?? "unknown",
           verdict.reason,
         ),
@@ -94,13 +107,15 @@ function main(): void {
       allowPositionals: true,
       strict: true,
     });
-    if (positionals.length) throw new Error("install does not accept arguments");
+    if (positionals.length)
+      throw new Error("install does not accept arguments");
     install(!!values.claude, !!values.project, !!values["no-configure"]);
     return;
   }
   if (command === "doctor") {
     if (arguments_.length) throw new Error("doctor does not accept arguments");
-    process.exitCode = doctor();
+    const { diagnostics } = loadEvaluationInputs();
+    process.exitCode = doctor(diagnostics);
     return;
   }
   if (command === "test") {
@@ -114,6 +129,8 @@ function main(): void {
 try {
   main();
 } catch (error) {
-  console.error(`hal: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(
+    `hal: ${error instanceof Error ? error.message : String(error)}`,
+  );
   process.exitCode = 1;
 }

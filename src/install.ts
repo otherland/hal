@@ -51,15 +51,15 @@ export function install(
     if (!noConfigure) {
       const hooks = (settings.hooks ??= {});
       const entries = (hooks.PreToolUse ??= []);
+      const newHooks: ClaudeHook[] = [{ type: "command", command }];
       const entry: ClaudeEntry = {
         matcher: "Bash",
-        hooks: [{ type: "command", command }],
+        hooks: newHooks,
       };
       const existing = entries.filter((item) =>
         item.hooks?.some((hook) => String(hook.command || "").includes("hal")),
       );
-      if (existing.length)
-        existing.forEach((item) => (item.hooks = entry.hooks));
+      if (existing.length) existing.forEach((item) => (item.hooks = newHooks));
       else entries.push(entry);
     }
     fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");

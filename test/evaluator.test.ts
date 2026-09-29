@@ -116,22 +116,19 @@ test("segmentation, inline commands, heredocs, and sanitized data are evaluated"
     evaluate("echo 'git push --force' && git status", packs).action,
     "allow",
   );
-  assert.equal(evaluate("sudo env CI=1 git clean -f", packs).action, "block");
+  assert.equal(evaluate("sudo env CI=1 git clean -f", packs).action, "deny");
   assert.equal(evaluate("git commit -m 'rm -rf /'", packs).action, "allow");
-  assert.equal(evaluate("bash -c 'rm -rf /'", packs).action, "block");
+  assert.equal(evaluate("bash -c 'rm -rf /'", packs).action, "deny");
   assert.equal(evaluate("python -c 'echo hello'", packs).action, "allow");
-  assert.equal(evaluate("bash <<'END'\nrm -rf /\nEND", packs).action, "block");
+  assert.equal(evaluate("bash <<'END'\nrm -rf /\nEND", packs).action, "deny");
   assert.equal(
     evaluate("cat <<EOF | sh\ngit push --force\nEOF", packs).action,
-    "block",
+    "deny",
   );
 });
 
 test("evaluation honors allow lists and severity thresholds", () => {
-  assert.equal(
-    evaluate("git push --force", custom(), config()).action,
-    "block",
-  );
+  assert.equal(evaluate("git push --force", custom(), config()).action, "deny");
   assert.equal(
     evaluate("git push --force-with-lease", custom(), config()).action,
     "allow",
@@ -174,36 +171,36 @@ test("evaluation honors allow lists and severity thresholds", () => {
 });
 
 test("built-in packs cover destructive operations and safe exceptions", () => {
-  const cases: [string, "block" | "allow"][] = [
-    ["git reset --hard HEAD~1", "block"],
+  const cases: [string, "allow" | "ask" | "deny"][] = [
+    ["git reset --hard HEAD~1", "deny"],
     ["git reset --soft HEAD~1", "allow"],
-    ["git push --force origin main", "block"],
+    ["git push --force origin main", "deny"],
     ["git push --force-with-lease", "allow"],
-    ["git clean -f", "block"],
+    ["git clean -f", "deny"],
     ["git clean -f -n", "allow"],
-    ["git stash clear", "block"],
-    ["git branch -D feature", "block"],
-    ["git push -f origin main", "block"],
-    ["rm -rf /var/data", "block"],
+    ["git stash clear", "deny"],
+    ["git branch -D feature", "ask"],
+    ["git push -f origin main", "deny"],
+    ["rm -rf /var/data", "deny"],
     ["rm -rf node_modules", "allow"],
     ["rm -rf ./node_modules", "allow"],
     ["rm -rf /tmp", "allow"],
     ["rm -rf /tmp/file", "allow"],
-    ["rm -rf node_modules src", "block"],
-    ["chmod 777 /etc/passwd", "block"],
+    ["rm -rf node_modules src", "deny"],
+    ["chmod 777 /etc/passwd", "deny"],
     ["chmod 644 file.txt", "allow"],
-    ["mkfs /dev/sda1", "block"],
+    ["mkfs /dev/sda1", "deny"],
     ["mkfs.ext4 /dev/sda1", "allow"],
-    ["docker system prune -a", "block"],
+    ["docker system prune -a", "deny"],
     ["docker ps", "allow"],
-    ["aws s3 rm s3://bucket --recursive", "block"],
-    ["aws ec2 terminate-instances --instance-ids i-123", "block"],
+    ["aws s3 rm s3://bucket --recursive", "deny"],
+    ["aws ec2 terminate-instances --instance-ids i-123", "deny"],
     ["aws s3 ls", "allow"],
-    ["az group delete --name mygroup", "block"],
+    ["az group delete --name mygroup", "deny"],
     ["az vm list", "allow"],
-    ["sudo git push --force", "block"],
-    ["env VAR=1 rm -rf /", "block"],
-    ["/usr/bin/rm -rf /", "block"],
+    ["sudo git push --force", "deny"],
+    ["env VAR=1 rm -rf /", "deny"],
+    ["/usr/bin/rm -rf /", "deny"],
     ["ls -la", "allow"],
     ["cat /etc/hosts", "allow"],
     ["echo hello world", "allow"],
@@ -217,10 +214,10 @@ test("built-in packs cover destructive operations and safe exceptions", () => {
 test("allow commands are exact while custom packs retain built-ins", () => {
   assert.equal(
     evaluate("git push --force", packs, config({ allow: ["git push"] })).action,
-    "block",
+    "deny",
   );
   assert.equal(
-    evaluate("git push --force", packs, config({ packs: ["core.filesystem"] }))
+    evaluate("git push --force", loadPacks(undefined, ["core.filesystem"]))
       .action,
     "allow",
   );

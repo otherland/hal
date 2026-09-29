@@ -13,6 +13,7 @@ export type Protocol = "copilot" | "claude";
 
 export type PermissionDecision = "deny" | "ask";
 
+export type VerdictAction = "allow" | PermissionDecision;
+
 export const isSeverity = (value: unknown): value is Severity =>
-  typeof value === "string" &&
-  SEVERITIES.includes(value as Severity);
+  typeof value === "string" && SEVERITIES.includes(value as Severity);

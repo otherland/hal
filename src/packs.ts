@@ -24,10 +24,15 @@ export type Pack = {
   keywords: string[];
   rules: Rule[];
 };
+export type PackDiagnostic = {
+  file: string;
+  message: string;
+};
 
 export function loadPacks(
   dirs = [path.resolve(import.meta.dirname, "..", "packs")],
   selectedIds: string[] = [],
+  diagnostics: PackDiagnostic[] = [],
 ): Pack[] {
   const result: Pack[] = [];
   for (const dir of dirs) {
@@ -47,20 +52,48 @@ export function loadPacks(
         const data = raw as Record<string, unknown>;
         const id = String(data.id ?? path.basename(file, path.extname(file)));
         if (selectedIds.length > 0 && !selectedIds.includes(id)) continue;
-        const rules = Array.isArray(data.rules)
-          ? data.rules
-              .filter((r) => r && typeof r === "object")
-              .map((r) => compileRule(id, r as Record<string, unknown>))
-          : [];
+        const rules = compileRules(
+          id,
+          data.rules,
+          path.join(dir, file),
+          diagnostics,
+        );
         result.push({
           id,
           name: String(data.name ?? id),
           keywords: list(data.keywords),
           rules,
         });
-      } catch {
-        /* malformed packs are ignored so evaluation fails open */
+      } catch (error) {
+        diagnostics.push({
+          file: path.join(dir, file),
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
+    }
+    function compileRules(
+      packId: string,
+      rawRules: unknown,
+      file: string,
+      diagnostics: PackDiagnostic[],
+    ): Rule[] {
+      if (!Array.isArray(rawRules)) return [];
+      const rules: Rule[] = [];
+      for (const rawRule of rawRules) {
+        if (!rawRule || typeof rawRule !== "object" || Array.isArray(rawRule)) {
+          diagnostics.push({ file, message: "rule must be an object" });
+          continue;
+        }
+        try {
+          rules.push(compileRule(packId, rawRule as Record<string, unknown>));
+        } catch (error) {
+          diagnostics.push({
+            file,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return rules;
     }
   }
   return result;
@@ -80,9 +113,8 @@ function compileRule(pack: string, raw: Record<string, unknown>): Rule {
   }
   const ruleSeverity = severity(raw.severity);
   if (!ruleSeverity) throw new Error(`invalid severity for ${name}`);
-  return {
+  const rule: Rule = {
     name,
-    command: raw.command == null ? undefined : String(raw.command),
     severity: ruleSeverity,
     reason: String(raw.reason ?? raw.description ?? ""),
     hasAll: list(raw.has_all),
@@ -90,14 +122,14 @@ function compileRule(pack: string, raw: Record<string, unknown>): Rule {
     flagsContain: list(raw.flags_contain),
     unless: list(raw.unless),
     unlessPath: raw.unless_path === true ? true : list(raw.unless_path),
-    pathIs:
-      raw.path_is == null
-        ? undefined
-        : Array.isArray(raw.path_is)
-          ? raw.path_is.map(String)
-          : String(raw.path_is),
-    pattern: raw.pattern == null ? undefined : String(raw.pattern),
-    compiled,
     ruleId: `${pack}:${name}`,
   };
+  if (raw.command != null) rule.command = String(raw.command);
+  if (raw.path_is != null)
+    rule.pathIs = Array.isArray(raw.path_is)
+      ? raw.path_is.map(String)
+      : String(raw.path_is);
+  if (raw.pattern != null) rule.pattern = String(raw.pattern);
+  if (compiled) rule.compiled = compiled;
+  return rule;
 }

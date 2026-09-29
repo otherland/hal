@@ -54,14 +54,20 @@ test("built-in and multiple custom pack directories load", () => {
   }
 });
 
-test("invalid rule severity rejects the malformed pack", () => {
+test("invalid rule severity skips only the malformed rule", () => {
   const d = temp();
   try {
     fs.writeFileSync(
       path.join(d, "invalid.yaml"),
-      "id: invalid\nrules: [{id: unsafe, severity: critical}]\n",
+      "id: invalid\nrules: [{id: unsafe, severity: critical}, {id: safe, severity: block}]\n",
     );
-    assert.deepEqual(loadPacks([d]), []);
+    const diagnostics = [];
+    const packs = loadPacks([d], [], diagnostics);
+    assert.deepEqual(
+      packs[0]?.rules.map((rule) => rule.name),
+      ["safe"],
+    );
+    assert.match(diagnostics[0]?.message ?? "", /invalid severity/);
   } finally {
     fs.rmSync(d, { recursive: true, force: true });
   }
