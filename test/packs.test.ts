@@ -73,6 +73,25 @@ test("invalid rule severity skips only the malformed rule", () => {
   }
 });
 
+test("invalid regular expressions skip only the malformed rule", () => {
+  const d = temp();
+  try {
+    fs.writeFileSync(
+      path.join(d, "invalid-regex.yaml"),
+      "id: invalid-regex\nrules: [{id: invalid, pattern: '['}, {id: safe, severity: block}]\n",
+    );
+    const diagnostics = [];
+    const packs = loadPacks([d], [], diagnostics);
+    assert.deepEqual(
+      packs[0]?.rules.map((rule) => rule.name),
+      ["safe"],
+    );
+    assert.match(diagnostics[0]?.message ?? "", /Invalid regular expression/);
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test("pack ids, rule id fallbacks, keywords, and nonexistent dirs are stable", () => {
   const d = temp();
   try {
