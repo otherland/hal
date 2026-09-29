@@ -141,7 +141,7 @@ test("CLI shows help and reports installation failures", () => {
   const d = temp();
   try {
     assert.match(run(d, ["--help"]), /Usage: hal/);
-    assert.match(run(d, ["--version"]), /^0\.1\.2\n$/);
+    assert.match(run(d, ["--version"]), /^0\.1\.3\n$/);
     assert.throws(
       () => run(d, ["unknown-command"]),
       /unknown command: unknown-command/,
@@ -191,6 +191,25 @@ test("doctor reports invalid configured pack rules without disabling valid rules
     assert.equal(testCommand.status, 1);
     assert.match(testCommand.stdout, /BLOCKED/);
     assert.match(testCommand.stderr, /invalid severity/);
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports invalid pack rules before hook installation", () => {
+  const d = temp();
+  try {
+    initializeRepo(d);
+    fs.mkdirSync(path.join(d, "packs"));
+    fs.writeFileSync(
+      path.join(d, "packs", "custom.yaml"),
+      "id: custom\nrules: [{id: invalid, severity: critical}]\n",
+    );
+    fs.writeFileSync(path.join(d, ".hal.yaml"), "pack_dirs: [packs]\n");
+    const doctor = runWithOutput(d, ["doctor"]);
+    assert.equal(doctor.status, 1);
+    assert.match(doctor.stdout, /invalid severity/);
+    assert.match(doctor.stdout, /hook file: missing/);
   } finally {
     fs.rmSync(d, { recursive: true, force: true });
   }

@@ -71,32 +71,32 @@ export function loadPacks(
         });
       }
     }
-    function compileRules(
-      packId: string,
-      rawRules: unknown,
-      file: string,
-      diagnostics: PackDiagnostic[],
-    ): Rule[] {
-      if (!Array.isArray(rawRules)) return [];
-      const rules: Rule[] = [];
-      for (const rawRule of rawRules) {
-        if (!rawRule || typeof rawRule !== "object" || Array.isArray(rawRule)) {
-          diagnostics.push({ file, message: "rule must be an object" });
-          continue;
-        }
-        try {
-          rules.push(compileRule(packId, rawRule as Record<string, unknown>));
-        } catch (error) {
-          diagnostics.push({
-            file,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-      return rules;
-    }
   }
   return result;
+}
+function compileRules(
+  packId: string,
+  rawRules: unknown,
+  file: string,
+  diagnostics: PackDiagnostic[],
+): Rule[] {
+  if (!Array.isArray(rawRules)) return [];
+  const rules: Rule[] = [];
+  for (const rawRule of rawRules) {
+    if (!rawRule || typeof rawRule !== "object" || Array.isArray(rawRule)) {
+      diagnostics.push({ file, message: "rule must be an object" });
+      continue;
+    }
+    try {
+      rules.push(compileRule(packId, rawRule as Record<string, unknown>));
+    } catch (error) {
+      diagnostics.push({
+        file,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return rules;
 }
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 const severity = (value: unknown): Severity | undefined =>
@@ -104,13 +104,8 @@ const severity = (value: unknown): Severity | undefined =>
 function compileRule(pack: string, raw: Record<string, unknown>): Rule {
   const name = String(raw.name ?? raw.id ?? "unnamed");
   let compiled: RegExp | undefined;
-  if (raw.regex || raw.pattern) {
-    try {
-      compiled = new RegExp(String(raw.regex ?? raw.pattern), "u");
-    } catch {
-      /* skip bad regex */
-    }
-  }
+  if (raw.regex || raw.pattern)
+    compiled = new RegExp(String(raw.regex ?? raw.pattern), "u");
   const ruleSeverity = severity(raw.severity);
   if (!ruleSeverity) throw new Error(`invalid severity for ${name}`);
   const rule: Rule = {

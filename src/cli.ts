@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import path from "node:path";
 import { parseArgs } from "node:util";
 import packageJson from "../package.json" with { type: "json" };
 import { loadConfig } from "./config.js";
@@ -34,15 +35,24 @@ function loadEvaluationInputs(): {
 } {
   const config = loadConfig();
   const diagnostics: PackDiagnostic[] = [];
+  const customPackDirs = [
+    ...new Set(config.packDirs.map((directory) => path.resolve(directory))),
+  ];
   const packs = [
     ...loadPacks(undefined, config.packs, diagnostics),
-    ...loadPacks(config.packDirs, config.packs, diagnostics),
+    ...loadPacks(customPackDirs, config.packs, diagnostics),
   ];
   return { config, packs, diagnostics };
 }
 
 function printDiagnostics(diagnostics: readonly PackDiagnostic[]): void {
-  for (const diagnostic of diagnostics)
+  const uniqueDiagnostics = new Map(
+    diagnostics.map((diagnostic) => [
+      `${diagnostic.file}\0${diagnostic.message}`,
+      diagnostic,
+    ]),
+  );
+  for (const diagnostic of uniqueDiagnostics.values())
     console.error(`hal: ${diagnostic.file}: ${diagnostic.message}`);
 }
 
