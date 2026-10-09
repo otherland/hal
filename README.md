@@ -147,6 +147,17 @@ intended. Invalid rules in custom packs are skipped and reported by
 
 Project-level overrides: `.hal.yaml` in your repo root (merged with global, project wins).
 
+## PR decider
+
+Every pull request is read by [Strands Decider](https://github.com/strands-labs/strands-decider),
+a small model that answers the questions in `.github/decider/questions.json`
+(what kind of change it is, whether it loosens a guard rule, whether it adds
+tests, and how risky it is). The answers are posted as a single PR comment that
+updates on each push. Answers below 0.9 confidence are flagged for a human.
+
+To ask again without pushing, open **Actions → PR decider → Run workflow** and
+enter the PR number.
+
 ## Design principles
 
 - Fail-open everywhere. Any error defaults to ALLOW. HAL never blocks legitimate work.
