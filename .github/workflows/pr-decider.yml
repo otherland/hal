@@ -1,0 +1,71 @@
+name: PR decider
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-decider-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  DECIDER_MODEL: StrandsAgents/strands-decider-2B-qwen3.5-v1-2610
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/decider/requirements.txt
+
+      # CPU-only torch keeps the install small; strands-decider then reuses it.
+      - name: Install strands-decider
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r .github/decider/requirements.txt
+
+      - name: Cache model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ env.DECIDER_MODEL }}
+
+      - name: Ask the decider about this PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python .github/decider/ask.py "$RUNNER_TEMP/decider.md"
+          cat "$RUNNER_TEMP/decider.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # Fork PRs get a read-only token, so they only see the job summary.
+      - name: Comment on the PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync(`${process.env.RUNNER_TEMP}/decider.md`, "utf8");
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const mine = comments.find((c) => c.body?.startsWith("<!-- strands-decider -->"));
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

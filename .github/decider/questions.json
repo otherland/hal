@@ -1,0 +1,27 @@
+{
+  "kind": {
+    "type": "choice",
+    "instructions": "What kind of change is this pull request?",
+    "criteria": {
+      "bug fix": null,
+      "new feature": null,
+      "refactor": null,
+      "documentation": null,
+      "tests": null,
+      "build or CI": null
+    }
+  },
+  "weakens_guard": {
+    "type": "noul",
+    "instructions": "Does this pull request remove or loosen a rule that blocks a harmful command, or add a way to bypass one?"
+  },
+  "adds_tests": {
+    "type": "noul",
+    "instructions": "Does this pull request add or update tests for the code it changes?"
+  },
+  "risk": {
+    "type": "score",
+    "instructions": "How risky is this pull request to merge?",
+    "criteria": ["low", "medium", "high"]
+  }
+}
