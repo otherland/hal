@@ -20,6 +20,9 @@ concurrency:
 
 env:
   DECIDER_MODEL: StrandsAgents/strands-decider-2B-qwen3.5-v1-2610
+  # Repository variables: DECIDER_RUNNER names a larger or GPU runner, and
+  # DECIDER_DEVICE=cuda uses its GPU. Unset, it runs on ubuntu-latest's CPU.
+  DECIDER_DEVICE: ${{ vars.DECIDER_DEVICE || 'cpu' }}
 
 jobs:
   ask:
@@ -30,7 +33,7 @@ jobs:
         !github.event.pull_request.draft && (
           github.event.action != 'edited' ||
           github.event.changes.title || github.event.changes.body))
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DECIDER_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -51,8 +54,12 @@ jobs:
       - name: Start installing strands-decider
         run: |
           (
-            uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu &&
-            uv pip install --system -r .github/decider/requirements.txt
+            if [ "$DECIDER_DEVICE" = cuda ]; then
+              uv pip install --system torch -r .github/decider/requirements.txt
+            else
+              uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu &&
+              uv pip install --system -r .github/decider/requirements.txt
+            fi
             echo $? > "$RUNNER_TEMP/install.rc"
           ) > "$RUNNER_TEMP/install.log" 2>&1 &
 
