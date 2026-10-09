@@ -55,14 +55,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: .github/decider/requirements.txt
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: .github/decider/requirements.txt
 
       # CPU-only torch keeps the install small; strands-decider then reuses it.
       - name: Install strands-decider
         run: |
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r .github/decider/requirements.txt
+          uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --system -r .github/decider/requirements.txt
 
       - name: Cache model
         uses: actions/cache@v4
@@ -76,7 +79,6 @@ jobs:
           PR_BODY: ${{ steps.pr.outputs.body }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          DECIDER_TIME_EACH: "1"
         run: |
           python .github/decider/ask.py "$RUNNER_TEMP/decider.md"
           cat "$RUNNER_TEMP/decider.md" >> "$GITHUB_STEP_SUMMARY"

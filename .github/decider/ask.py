@@ -20,6 +20,14 @@ HERE = Path(__file__).parent
 MAX_DIFF_CHARS = 60_000
 CONFIDENT = 0.9
 
+# Machine-written files: their diffs are long, cost the most to read, and say
+# little about the change. They still appear in the file list.
+SKIP_DIFF = [
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb",
+    "poetry.lock", "uv.lock", "Pipfile.lock", "Cargo.lock", "go.sum", "Gemfile.lock",
+    "composer.lock", "*.min.js", "*.min.css", "*.map", "*.snap", "*.svg",
+]
+
 
 def git(*args: str) -> str:
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
@@ -27,7 +35,8 @@ def git(*args: str) -> str:
 
 def pr_state(base: str, head: str) -> str:
     rng = f"{base}...{head}"
-    diff = git("diff", rng)
+    excludes = [f":(exclude,glob)**/{pattern}" for pattern in SKIP_DIFF]
+    diff = git("diff", rng, "--", ".", *excludes)
     if len(diff) > MAX_DIFF_CHARS:
         diff = diff[:MAX_DIFF_CHARS] + "\n[diff truncated]\n"
     return "\n\n".join(
