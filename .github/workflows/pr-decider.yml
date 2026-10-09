@@ -49,10 +49,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: .github/decider/requirements.txt
 
-      # Install in the background while the next steps fetch the PR and restore
-      # the 3.7 GB model; "Finish installing" waits for it.
-      - name: Start installing strands-decider
+      # Download the 3.7 GB model and install in the background while the next
+      # steps look up the PR; "Finish setting up" waits for both. The hf CLI
+      # downloads in ~5 s, far faster than restoring an Actions cache (~50 s).
+      - name: Start downloading the model and installing strands-decider
         run: |
+          (
+            uvx --from huggingface_hub hf download "$DECIDER_MODEL" > /dev/null
+            echo $? > "$RUNNER_TEMP/download.rc"
+          ) > "$RUNNER_TEMP/download.log" 2>&1 &
           (
             if [ "$DECIDER_DEVICE" = cuda ]; then
               uv pip install --system torch -r .github/decider/requirements.txt
@@ -85,19 +90,14 @@ jobs:
       - name: Fetch the PR head
         run: git fetch --no-tags origin "refs/pull/${{ steps.pr.outputs.number }}/head"
 
-      # Restore only: decider-cache.yml saves it from the base branch, so PRs
-      # don't each store their own 3.7 GB copy. A miss downloads from Hugging Face.
-      - name: Restore model
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/huggingface
-          key: hf-${{ env.DECIDER_MODEL }}
-
-      - name: Finish installing strands-decider
+      - name: Finish setting up
         run: |
-          while [ ! -f "$RUNNER_TEMP/install.rc" ]; do sleep 1; done
-          cat "$RUNNER_TEMP/install.log"
-          exit "$(cat "$RUNNER_TEMP/install.rc")"
+          for job in download install; do
+            while [ ! -f "$RUNNER_TEMP/$job.rc" ]; do sleep 1; done
+            echo "::group::$job"; cat "$RUNNER_TEMP/$job.log"; echo "::endgroup::"
+            rc=$(cat "$RUNNER_TEMP/$job.rc")
+            [ "$rc" = 0 ] || { echo "$job failed ($rc)"; exit "$rc"; }
+          done
 
       - name: Ask the decider about this PR
         env:
