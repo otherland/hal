@@ -328,7 +328,7 @@ class TestEvaluate:
 
     def test_dangerous_command_blocked(self):
         d = evaluate("git push --force", [self._git_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
         assert "push-force" in d.rule_id
 
     def test_unless_exemption(self):
@@ -341,15 +341,15 @@ class TestEvaluate:
 
     def test_chained_commands_blocked(self):
         d = evaluate("echo hello && git push --force", [self._git_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_sudo_normalized(self):
         d = evaluate("sudo git push --force", [self._git_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_rm_rf_blocked(self):
         d = evaluate("rm -rf /", [self._rm_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_config_allow_list(self):
         config = Config(allow=["git push --force"])
@@ -368,13 +368,13 @@ class TestEvaluate:
 
     def test_inline_script_blocked(self):
         d = evaluate("bash -c 'rm -rf /'", [self._rm_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_with_real_packs(self):
         """Integration test with actual YAML packs."""
         packs = load_packs()
         d = evaluate("git push --force origin main", packs)
-        assert d.action == "block"
+        assert d.action == "deny"
 
         d2 = evaluate("git status", packs)
         assert d2.action == "allow"
@@ -394,26 +394,26 @@ class TestEvaluate:
 
     def test_pipe_segment_blocked(self):
         d = evaluate("cat /etc/passwd | rm -rf /", [self._rm_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_semicolon_segment_blocked(self):
         d = evaluate("echo ok; rm -rf /", [self._rm_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_env_normalized(self):
         d = evaluate("env VAR=1 git push --force", [self._git_pack()])
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_backslash_normalized(self):
         """Backslash-prefixed commands should still be caught."""
         packs = load_packs()
         d = evaluate("\\git push --force", packs)
-        assert d.action == "block"
+        assert d.action == "deny"
 
     def test_abs_path_normalized(self):
         packs = load_packs()
         d = evaluate("/usr/bin/git push --force", packs)
-        assert d.action == "block"
+        assert d.action == "deny"
 
 
 # ── bd-32z: Comprehensive pipeline tests with real packs ─────────
@@ -427,33 +427,33 @@ class TestEvaluateWithRealPacks:
 
     # -- Git pack --
     def test_git_reset_hard_blocked(self):
-        assert evaluate("git reset --hard HEAD~1", self.packs).action == "block"
+        assert evaluate("git reset --hard HEAD~1", self.packs).action == "deny"
 
     def test_git_reset_soft_allowed(self):
         assert evaluate("git reset --soft HEAD~1", self.packs).action == "allow"
 
     def test_git_push_force_blocked(self):
-        assert evaluate("git push --force origin main", self.packs).action == "block"
+        assert evaluate("git push --force origin main", self.packs).action == "deny"
 
     def test_git_push_force_with_lease_allowed(self):
         assert evaluate("git push --force-with-lease origin main", self.packs).action == "allow"
 
     def test_git_clean_f_blocked(self):
-        assert evaluate("git clean -f", self.packs).action == "block"
+        assert evaluate("git clean -f", self.packs).action == "deny"
 
     def test_git_clean_dry_run_allowed(self):
         assert evaluate("git clean -f -n", self.packs).action == "allow"
 
     def test_git_stash_clear_blocked(self):
-        assert evaluate("git stash clear", self.packs).action == "block"
+        assert evaluate("git stash clear", self.packs).action == "deny"
 
-    def test_git_branch_D_warn_below_threshold(self):
-        # branch -D is severity=warn, default threshold is high, so it's allowed
-        assert evaluate("git branch -D feature", self.packs).action == "allow"
+    def test_git_branch_D_asks_at_default_threshold(self):
+        # branch -D is severity=warn and the default threshold is warn
+        assert evaluate("git branch -D feature", self.packs).action == "ask"
 
-    def test_git_branch_D_blocked_low_threshold(self):
-        config = Config(severity_threshold="warn")
-        assert evaluate("git branch -D feature", self.packs, config).action == "block"
+    def test_git_branch_D_allowed_above_threshold(self):
+        config = Config(severity_threshold="high")
+        assert evaluate("git branch -D feature", self.packs, config).action == "allow"
 
     def test_git_branch_d_allowed(self):
         assert evaluate("git branch -d feature", self.packs).action == "allow"
@@ -469,23 +469,23 @@ class TestEvaluateWithRealPacks:
 
     # -- Filesystem pack --
     def test_rm_rf_blocked(self):
-        assert evaluate("rm -rf /", self.packs).action == "block"
+        assert evaluate("rm -rf /", self.packs).action == "deny"
 
     def test_rm_rf_combined_blocked(self):
-        assert evaluate("rm -rf /var/data", self.packs).action == "block"
+        assert evaluate("rm -rf /var/data", self.packs).action == "deny"
 
     def test_rm_single_file_allowed(self):
         assert evaluate("rm file.txt", self.packs).action == "allow"
 
     def test_chmod_777_blocked(self):
-        assert evaluate("chmod 777 /etc/passwd", self.packs).action == "block"
+        assert evaluate("chmod 777 /etc/passwd", self.packs).action == "deny"
 
     def test_chmod_644_allowed(self):
         assert evaluate("chmod 644 file.txt", self.packs).action == "allow"
 
     def test_mkfs_blocked(self):
         # mkfs (exact token) is blocked; mkfs.ext4 is a different token
-        assert evaluate("mkfs /dev/sda1", self.packs).action == "block"
+        assert evaluate("mkfs /dev/sda1", self.packs).action == "deny"
 
     def test_mkfs_ext4_not_matched(self):
         # mkfs.ext4 doesn't match has_all: [mkfs] — token is "mkfs.ext4"
@@ -493,10 +493,10 @@ class TestEvaluateWithRealPacks:
 
     # -- Docker pack --
     def test_docker_system_prune_a_blocked(self):
-        assert evaluate("docker system prune -a", self.packs).action == "block"
+        assert evaluate("docker system prune -a", self.packs).action == "deny"
 
     def test_docker_volume_prune_blocked(self):
-        assert evaluate("docker volume prune", self.packs).action == "block"
+        assert evaluate("docker volume prune", self.packs).action == "deny"
 
     def test_docker_ps_allowed(self):
         assert evaluate("docker ps", self.packs).action == "allow"
@@ -506,44 +506,44 @@ class TestEvaluateWithRealPacks:
 
     # -- AWS pack --
     def test_aws_s3_rm_recursive_blocked(self):
-        assert evaluate("aws s3 rm s3://bucket --recursive", self.packs).action == "block"
+        assert evaluate("aws s3 rm s3://bucket --recursive", self.packs).action == "deny"
 
     def test_aws_ec2_terminate_blocked(self):
-        assert evaluate("aws ec2 terminate-instances --instance-ids i-123", self.packs).action == "block"
+        assert evaluate("aws ec2 terminate-instances --instance-ids i-123", self.packs).action == "deny"
 
     def test_aws_s3_ls_allowed(self):
         assert evaluate("aws s3 ls", self.packs).action == "allow"
 
     # -- Azure pack --
     def test_az_group_delete_blocked(self):
-        assert evaluate("az group delete --name mygroup", self.packs).action == "block"
+        assert evaluate("az group delete --name mygroup", self.packs).action == "deny"
 
     def test_az_vm_delete_blocked(self):
-        assert evaluate("az vm delete --name myvm", self.packs).action == "block"
+        assert evaluate("az vm delete --name myvm", self.packs).action == "deny"
 
     def test_az_vm_list_allowed(self):
         assert evaluate("az vm list", self.packs).action == "allow"
 
     # -- Normalization in pipeline --
     def test_sudo_git_push_force(self):
-        assert evaluate("sudo git push --force", self.packs).action == "block"
+        assert evaluate("sudo git push --force", self.packs).action == "deny"
 
     def test_env_rm_rf(self):
-        assert evaluate("env VAR=1 rm -rf /", self.packs).action == "block"
+        assert evaluate("env VAR=1 rm -rf /", self.packs).action == "deny"
 
     def test_abs_path_rm_rf(self):
-        assert evaluate("/usr/bin/rm -rf /", self.packs).action == "block"
+        assert evaluate("/usr/bin/rm -rf /", self.packs).action == "deny"
 
     # -- Segment splitting --
     def test_safe_then_dangerous(self):
-        assert evaluate("echo hello && git push --force", self.packs).action == "block"
+        assert evaluate("echo hello && git push --force", self.packs).action == "deny"
 
     def test_pipe_to_dangerous(self):
-        assert evaluate("cat file | rm -rf /", self.packs).action == "block"
+        assert evaluate("cat file | rm -rf /", self.packs).action == "deny"
 
     # -- Inline extraction --
     def test_bash_c_rm_rf(self):
-        assert evaluate("bash -c 'rm -rf /'", self.packs).action == "block"
+        assert evaluate("bash -c 'rm -rf /'", self.packs).action == "deny"
 
     def test_bash_c_safe(self):
         assert evaluate("bash -c 'echo hello'", self.packs).action == "allow"
@@ -563,3 +563,78 @@ class TestEvaluateWithRealPacks:
 
     def test_python_allowed(self):
         assert evaluate("python3 script.py", self.packs).action == "allow"
+
+
+class TestBuiltInPackCases:
+    """Shared with the TypeScript implementation's built-in pack cases."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.packs = load_packs()
+
+    CASES = [
+        ("git reset --hard HEAD~1", "deny"),
+        ("git reset --soft HEAD~1", "allow"),
+        ("git push --force origin main", "deny"),
+        ("git push --force-with-lease", "allow"),
+        ("git clean -f", "deny"),
+        ("git clean -f -n", "allow"),
+        ("git stash clear", "deny"),
+        ("git branch -D feature", "ask"),
+        ("git push -f origin main", "deny"),
+        ("rm -rf /var/data", "deny"),
+        ("rm -rf node_modules", "allow"),
+        ("rm -rf ./node_modules", "allow"),
+        ("rm -rf /tmp", "allow"),
+        ("rm -rf /tmp/file", "allow"),
+        ("rm -rf node_modules src", "deny"),
+        ("rm -rf node_modules /", "deny"),
+        ("rm -rf ../node_modules", "deny"),
+        ("rm --recursive --force /var/data", "deny"),
+        ("rm /", "deny"),
+        ("chmod 777 /etc/passwd", "deny"),
+        ("chmod 644 file.txt", "allow"),
+        ("mkfs /dev/sda1", "deny"),
+        ("docker system prune -a", "deny"),
+        ("docker ps", "allow"),
+        ("aws s3 rm s3://bucket --recursive", "deny"),
+        ("aws s3 ls", "allow"),
+        ("az group delete --name mygroup", "deny"),
+        ("sudo git push --force", "deny"),
+        ("env VAR=1 rm -rf /", "deny"),
+        ("/usr/bin/rm -rf /", "deny"),
+        ("sleep 1 & rm -rf /var/data", "deny"),
+        ("cat <<EOF | sh\ngit push --force\nEOF", "deny"),
+        ("bash <<'END'\nrm -rf /\nEND", "deny"),
+        ("ls -la", "allow"),
+        ("echo hello world", "allow"),
+        ("python3 script.py", "allow"),
+    ]
+
+    def test_cases(self):
+        for command, action in self.CASES:
+            assert evaluate(command, self.packs).action == action, command
+
+
+class TestPortedMatching:
+    def test_short_flags_alias_long(self):
+        flags = parse_flags(["rm", "-rf", "--format=oneline"])
+        assert {"-r", "-f", "--recursive", "--force", "--format"} <= flags
+
+    def test_long_flags_alias_short(self):
+        assert {"-r", "-R", "-f"} <= parse_flags(["rm", "--recursive", "--force"])
+
+    def test_path_is_list(self):
+        rule = Rule(command="rm", path_is=["/"])
+        assert match_rule(["rm", "/"], set(), rule) is True
+        assert match_rule(["rm", "/home"], set(), rule) is False
+
+    def test_allow_is_exact(self):
+        packs = load_packs()
+        config = Config(allow=["git push"])
+        assert evaluate("git push --force", packs, config).action == "deny"
+
+    def test_unknown_threshold_falls_back_to_default(self):
+        packs = load_packs()
+        config = Config(severity_threshold="bogus")
+        assert evaluate("git branch -D feature", packs, config).action == "ask"

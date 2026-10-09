@@ -103,7 +103,14 @@ hal test "git reset --hard"        # BLOCKED
 hal test "git commit -m 'fix'"     # ALLOWED
 hal test "sudo rm -rf /"           # BLOCKED
 hal test "rm -rf node_modules"     # ALLOWED
+hal test "git branch -D old"       # CONFIRM (asks before running)
+
+# Check the Copilot hook, repository trust, and your packs
+hal doctor
 ```
+
+Rules with `severity: block` are denied outright. Lower-severity rules at or
+above `severity_threshold` ask you to confirm instead.
 
 ## Packs
 
@@ -127,9 +134,16 @@ All packs enabled by default. No configuration required.
 packs: [core.git, core.filesystem, containers.docker, cloud.aws, cloud.azure]
 allow: []                # Exact commands to always allow
 allow_rules: []          # Rule IDs to disable (e.g. "core.git:push-force")
-allow_prefixes: []       # Command prefixes to allow
-severity_threshold: high # Block at this level and above
+allow_prefixes: []       # Raw command prefixes to allow
+severity_threshold: warn # Warn and block at this level and above
+pack_dirs: []            # Extra directories of custom packs
 ```
+
+`packs` optionally selects enabled pack IDs; when empty, all packs are enabled.
+`pack_dirs` adds custom pack directories alongside the built-in packs. The
+`allow` list is exact-match only; use `allow_prefixes` when a raw prefix is
+intended. Invalid rules in custom packs are skipped and reported by
+`hal test` and `hal doctor`.
 
 Project-level overrides: `.hal.yaml` in your repo root (merged with global, project wins).
 

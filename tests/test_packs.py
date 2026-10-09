@@ -167,3 +167,46 @@ class TestLoadPacks:
         for pack in packs:
             assert pack.name
             assert isinstance(pack.rules, list)
+
+
+class TestPackValidation:
+    def _write(self, d, name, data):
+        with open(os.path.join(d, name), "w") as f:
+            yaml.dump(data, f)
+
+    def test_invalid_severity_skips_only_that_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "p.yaml", {"id": "p", "rules": [
+                {"name": "bad", "severity": "critical"},
+                {"name": "good", "severity": "block"},
+            ]})
+            diagnostics = []
+            packs = load_packs([d], diagnostics=diagnostics)
+            assert [r.name for r in packs[0].rules] == ["good"]
+            assert diagnostics[0].message == "invalid severity for bad"
+
+    def test_invalid_regex_skips_only_that_rule(self):
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "p.yaml", {"id": "p", "rules": [
+                {"name": "bad", "pattern": "("},
+                {"name": "good", "regex": "rm"},
+                "not a rule",
+            ]})
+            diagnostics = []
+            packs = load_packs([d], diagnostics=diagnostics)
+            assert [r.name for r in packs[0].rules] == ["good"]
+            assert packs[0].rules[0].compiled is not None
+            assert len(diagnostics) == 2
+
+    def test_selected_ids_filter_packs(self):
+        packs = load_packs(selected_ids=["core.filesystem"])
+        assert [p.id for p in packs] == ["core.filesystem"]
+
+    def test_custom_pack_dirs_are_additive(self):
+        from hal.config import Config
+        from hal.packs import load_configured_packs
+
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "mine.yaml", {"id": "mine", "rules": [{"name": "r"}]})
+            ids = {p.id for p in load_configured_packs(Config(pack_dirs=[d]))}
+            assert "mine" in ids and "core.git" in ids

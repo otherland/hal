@@ -23,8 +23,9 @@ def detect_protocol(data: dict) -> str:
         return COPILOT
     if "toolInput" in data or "toolArgs" in data:
         return COPILOT
-    # Everything else is Claude Code
-    return CLAUDE
+    if "hookSpecificInput" in data or "tool_input" in data:
+        return CLAUDE
+    return COPILOT
 
 
 def extract_command(data: dict) -> Optional[str]:

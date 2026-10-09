@@ -13,7 +13,7 @@ class TestLoadConfig:
         """Zero-config should return sensible defaults."""
         config = load_config(project_dir="/nonexistent")
         assert isinstance(config, Config)
-        assert config.severity_threshold == "high"
+        assert config.severity_threshold == "warn"
         assert config.packs == []
         assert config.allow == []
 
@@ -50,3 +50,11 @@ class TestLoadConfig:
         """Missing config files should not error (fail-open)."""
         config = load_config(project_dir="/tmp/definitely_not_a_project")
         assert isinstance(config, Config)
+
+
+class TestSeverityThreshold:
+    def test_invalid_threshold_falls_back_to_warn(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, ".hal.yaml"), "w") as f:
+                yaml.dump({"severity_threshold": "critical"}, f)
+            assert load_config(project_dir=d).severity_threshold == "warn"

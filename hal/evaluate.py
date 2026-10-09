@@ -9,6 +9,8 @@ import shlex
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from hal.packs import SEVERITIES
+
 # ── Flag expansion map ──────────────────────────────────────────────
 LONG_FLAG_MAP = {
     "--recursive": ["-r", "-R"],
@@ -18,6 +20,12 @@ LONG_FLAG_MAP = {
     "--all": ["-a"],
     "--interactive": ["-i"],
     "--no-preserve-root": ["--no-preserve-root"],
+}
+SHORT_FLAG_MAP = {
+    short: long
+    for long, shorts in LONG_FLAG_MAP.items()
+    for short in shorts
+    if short != long
 }
 
 # Binaries whose absolute paths should be stripped to basename
@@ -113,25 +121,25 @@ def normalize(tokens: list) -> list:
 # ── bd-38v: Token matching engine ──────────────────────────────────
 
 def parse_flags(tokens: list) -> set:
-    """Extract all flags from tokens, expanding long→short and combined flags."""
+    """Extract all flags from tokens, aliasing long↔short and splitting combined flags."""
     flags = set()
     for tok in tokens:
         if not tok.startswith("-") or tok == "-" or tok == "--":
             continue
         flags.add(tok)
         # Handle --flag=value: also register the base --flag
-        if tok.startswith("--") and "=" in tok:
-            base = tok.split("=")[0]
-            flags.add(base)
-            if base in LONG_FLAG_MAP:
-                flags.update(LONG_FLAG_MAP[base])
-        # Expand long flags to short equivalents
-        elif tok in LONG_FLAG_MAP:
-            flags.update(LONG_FLAG_MAP[tok])
-        # Expand combined short flags: -rf → -r, -f
-        elif not tok.startswith("--") and len(tok) > 2:
+        base = tok.split("=")[0]
+        flags.add(base)
+        flags.update(LONG_FLAG_MAP.get(base, []))
+        if base in SHORT_FLAG_MAP:
+            flags.add(SHORT_FLAG_MAP[base])
+        # Expand combined short flags: -rf → -r, -f (and their long forms)
+        if not tok.startswith("--") and len(tok) > 2:
             for ch in tok[1:]:
-                flags.add(f"-{ch}")
+                short = f"-{ch}"
+                flags.add(short)
+                if short in SHORT_FLAG_MAP:
+                    flags.add(SHORT_FLAG_MAP[short])
     return flags
 
 
@@ -145,6 +153,11 @@ def get_path_args(tokens: list) -> list:
             continue
         paths.append(tok)
     return paths
+
+
+def _normalize_path(path: str) -> str:
+    """Strip a leading ./ so ./node_modules matches node_modules."""
+    return re.sub(r"^\./+", "", path)
 
 
 def match_rule(tokens: list, flags: set, rule) -> bool:
@@ -180,25 +193,24 @@ def match_rule(tokens: list, flags: set, rule) -> bool:
     if rule.unless and any(t in combined for t in rule.unless):
         return False
 
-    # unless_path: glob patterns for allowed paths, or True for traversal-only check
-    if rule.unless_path:
-        path_args = get_path_args(tokens)
-        if rule.unless_path is True or rule.unless_path == [True]:
-            # Boolean mode: just reject paths with '..' traversal
-            for pa in path_args:
-                if ".." in pa:
-                    return True  # traversal detected — match (block)
-        elif isinstance(rule.unless_path, list):
-            for pa in path_args:
-                if ".." in pa:
-                    continue  # traversal — don't let unless_path save it
-                if any(fnmatch.fnmatch(pa, pat) for pat in rule.unless_path):
-                    return False
+    path_args = get_path_args(tokens)
+
+    # unless_path: True rejects '..' traversal; a glob list exempts the
+    # command only when every path is safe (rm -rf node_modules / still matches)
+    if rule.unless_path is True:
+        if any(".." in pa for pa in path_args):
+            return True
+    elif rule.unless_path and path_args and all(
+        ".." not in pa
+        and any(fnmatch.fnmatchcase(_normalize_path(pa), pat) for pat in rule.unless_path)
+        for pa in path_args
+    ):
+        return False
 
     # path_is: at least one path argument must exactly match
     if rule.path_is:
-        path_args = get_path_args(tokens)
-        if not any(pa == rule.path_is for pa in path_args):
+        targets = rule.path_is if isinstance(rule.path_is, list) else [rule.path_is]
+        if not any(_normalize_path(pa) in targets for pa in path_args):
             return False
 
     return True
@@ -296,7 +308,7 @@ def split_segments(command: str) -> list:
                 current = []
                 i += 2
                 continue
-            if ch in ("|", ";"):
+            if ch in ("|", ";", "&"):
                 seg = "".join(current).strip()
                 if seg:
                     segments.append(seg)
@@ -348,14 +360,15 @@ def sanitize(tokens: list) -> str:
 
 # ── bd-2x0: Evaluation pipeline ──────────────────────────────────
 
-_SEVERITY_ORDER = {"info": 0, "low": 1, "medium": 2, "warn": 3, "high": 4, "block": 5}
+_SEVERITY_ORDER = {name: rank for rank, name in enumerate(SEVERITIES)}
+DEFAULT_THRESHOLD = "warn"
 _MAX_DEPTH = 1  # max recursion for inline/heredoc extraction
 
 
 @dataclass
 class Decision:
     """Result of evaluating a command."""
-    action: str = "allow"       # "allow" or "block"
+    action: str = "allow"       # "allow", "ask" (confirm) or "deny"
     rule_id: str = ""           # which rule matched
     reason: str = ""            # human-readable explanation
     severity: str = ""          # severity from the matching rule
@@ -365,39 +378,55 @@ class Decision:
 def evaluate(command: str, packs, config=None, _depth: int = 0) -> Decision:
     """Evaluate a command against loaded packs and config.
 
-    Pipeline: config allow check -> split segments -> per-segment:
-      normalize -> tokenize -> keyword pre-filter -> match rules
+    Pipeline: config allow check -> heredoc extraction -> split segments ->
+      per-segment: normalize -> tokenize -> keyword pre-filter -> match rules
       (token-based first, regex fallback with sanitize) ->
-      inline/heredoc extraction (recurse once).
+      inline extraction (recurse once).
     """
     decision = Decision(command=command)
 
     if not command or not command.strip():
         return decision
 
-    # Config allow-list check
+    # Config allow-list check: `allow` is exact, `allow_prefixes` is raw prefix
     if config:
-        for allowed in config.allow:
-            if command.strip() == allowed or command.strip().startswith(allowed + " "):
-                return decision
-        for prefix in config.allow_prefixes:
-            if command.strip().startswith(prefix):
-                return decision
+        stripped = command.strip()
+        if stripped in config.allow:
+            return decision
+        if any(stripped.startswith(prefix) for prefix in config.allow_prefixes):
+            return decision
 
-    # Severity threshold
     threshold = _SEVERITY_ORDER.get(
-        config.severity_threshold if config else "high", 4
+        config.severity_threshold if config else DEFAULT_THRESHOLD,
+        _SEVERITY_ORDER[DEFAULT_THRESHOLD],
     )
 
-    # Split into segments and evaluate each
-    segments = split_segments(command)
+    # Heredocs span segments (cat <<EOF | sh), so check the whole command first
+    if _depth < _MAX_DEPTH:
+        sub = _evaluate_heredoc(command, packs, config, _depth)
+        if sub:
+            return sub
 
-    for segment in segments:
+    for segment in split_segments(command):
         seg_decision = _evaluate_segment(segment, packs, config, threshold, _depth)
-        if seg_decision.action == "block":
+        if seg_decision.action != "allow":
             return seg_decision
 
     return decision
+
+
+def _evaluate_heredoc(command: str, packs, config, depth: int) -> Optional[Decision]:
+    """Evaluate each line of a heredoc fed to an interpreter."""
+    heredoc = extract_heredoc(command)
+    if not heredoc:
+        return None
+    for line in heredoc.split("\n"):
+        line = line.strip()
+        if line:
+            sub = evaluate(line, packs, config, _depth=depth + 1)
+            if sub.action != "allow":
+                return sub
+    return None
 
 
 def _evaluate_segment(
@@ -456,7 +485,7 @@ def _evaluate_segment(
                     continue
 
                 return Decision(
-                    action="block",
+                    action="deny" if rule.severity == "block" else "ask",
                     rule_id=rule.rule_id,
                     reason=rule.reason or rule.name,
                     severity=rule.severity,
@@ -468,17 +497,7 @@ def _evaluate_segment(
         inline = extract_inline(tokens)
         if inline:
             sub = evaluate(inline, packs, config, _depth=depth + 1)
-            if sub.action == "block":
+            if sub.action != "allow":
                 return sub
-
-        # Heredoc extraction — recurse once per body line
-        heredoc = extract_heredoc(segment)
-        if heredoc:
-            for line in heredoc.split("\n"):
-                line = line.strip()
-                if line:
-                    sub = evaluate(line, packs, config, _depth=depth + 1)
-                    if sub.action == "block":
-                        return sub
 
     return decision

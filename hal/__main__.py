@@ -9,10 +9,13 @@ import sys
 def main():
     """Main entry point — dispatches to hook, test, or install mode."""
     try:
+        from hal import __version__
+
         parser = argparse.ArgumentParser(
             prog="hal",
             description="HAL — Harmful Action Limiter",
         )
+        parser.add_argument("--version", "-v", action="version", version=__version__)
         sub = parser.add_subparsers(dest="command")
 
         # hal test "command"
@@ -25,6 +28,9 @@ def main():
         install_p.add_argument("--project", action="store_true", help="Use project-level settings (with --claude)")
         install_p.add_argument("--no-configure", action="store_true", help="Only update binary path")
 
+        # hal doctor
+        sub.add_parser("doctor", help="Check the Copilot hook, repository trust, and packs")
+
         args = parser.parse_args()
 
         if args.command == "test":
@@ -35,6 +41,12 @@ def main():
                 project=args.project,
                 no_configure=args.no_configure,
             )
+        elif args.command == "doctor":
+            from hal.doctor import doctor
+
+            diagnostics = []
+            _load_inputs(diagnostics)
+            sys.exit(doctor(diagnostics))
         else:
             # Default: hook mode — read JSON from stdin, evaluate, respond
             _cmd_hook()
@@ -44,9 +56,25 @@ def main():
         sys.exit(0)
 
 
+def _load_inputs(diagnostics=None):
+    """Load config and packs (built-ins plus configured pack_dirs)."""
+    from hal.config import load_config
+    from hal.packs import load_configured_packs
+
+    config = load_config()
+    return config, load_configured_packs(config, diagnostics)
+
+
+def _print_diagnostics(diagnostics):
+    seen = set()
+    for d in diagnostics:
+        if (d.file, d.message) not in seen:
+            seen.add((d.file, d.message))
+            print(f"hal: {d.file}: {d.message}", file=sys.stderr)
+
+
 def _cmd_hook():
     """Hook mode: read JSON from stdin, evaluate command, output decision."""
-    from hal.config import load_config
     from hal.evaluate import evaluate
     from hal.hook import (
         allow_output,
@@ -56,7 +84,6 @@ def _cmd_hook():
         extract_command,
         read_input,
     )
-    from hal.packs import load_packs
 
     data = read_input()
     if data is None:
@@ -67,16 +94,15 @@ def _cmd_hook():
         sys.exit(0)  # fail-open: no command = allow
 
     protocol = detect_protocol(data)
-    config = load_config()
-    packs = load_packs(config.pack_dirs if config.pack_dirs else None)
+    config, packs = _load_inputs()
 
     decision = evaluate(command, packs, config)
 
-    if decision.action == "block":
-        if decision.severity in ("warn", "medium", "low", "info"):
-            print(ask_output(protocol, decision.rule_id, decision.reason))
-        else:
-            print(deny_output(protocol, decision.rule_id, decision.reason))
+    if decision.action == "deny":
+        print(deny_output(protocol, decision.rule_id, decision.reason))
+        sys.exit(0)
+    if decision.action == "ask":
+        print(ask_output(protocol, decision.rule_id, decision.reason))
         sys.exit(0)
 
     # Allow — empty stdout, exit 0
@@ -88,22 +114,25 @@ def _cmd_hook():
 
 def _cmd_test(command: str):
     """Test mode: evaluate a command and print human-readable output."""
-    from hal.config import load_config
     from hal.evaluate import evaluate
-    from hal.packs import load_packs
 
-    config = load_config()
-    packs = load_packs(config.pack_dirs if config.pack_dirs else None)
+    diagnostics = []
+    config, packs = _load_inputs(diagnostics)
+    _print_diagnostics(diagnostics)
 
     decision = evaluate(command, packs, config)
 
-    if decision.action == "block":
-        # Red for block
-        print(f"\033[91m✗ BLOCKED\033[0m  {command}")
+    if decision.action != "allow":
+        if decision.action == "deny":
+            # Red for deny
+            print(f"\033[91m✗ BLOCKED\033[0m  {decision.command}")
+        else:
+            # Yellow for ask
+            print(f"\033[93m! CONFIRM\033[0m  {decision.command}")
         print(f"  rule:     {decision.rule_id}")
         print(f"  reason:   {decision.reason}")
         print(f"  severity: {decision.severity}")
-        sys.exit(1)
+        sys.exit(1 if decision.action == "deny" else 0)
     else:
         # Green for allow
         print(f"\033[92m✓ ALLOWED\033[0m  {command}")
@@ -178,7 +207,9 @@ def _install_copilot(hal_path: str, no_configure: bool):
     import json
     from pathlib import Path
 
-    hooks_dir = Path(".github") / "hooks"
+    from hal.doctor import repo_root
+
+    hooks_dir = Path(repo_root()) / ".github" / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
     hook_path = hooks_dir / "hal.json"
 
