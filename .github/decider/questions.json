@@ -3,12 +3,12 @@
     "type": "choice",
     "instructions": "What kind of change is this pull request?",
     "criteria": {
-      "bug fix": null,
-      "new feature": null,
-      "refactor": null,
-      "documentation": null,
-      "tests": null,
-      "build or CI": null
+      "bug fix": "Corrects behaviour that was wrong",
+      "new feature": "Adds a capability that did not exist",
+      "refactor": "Restructures code without changing behaviour",
+      "documentation": "Changes only docs, comments or the README",
+      "tests": "Changes only tests",
+      "build or CI": "Changes packaging, dependencies or workflows"
     }
   },
   "weakens_guard": {
