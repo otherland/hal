@@ -1,1 +1,2 @@
 strands-decider==0.1.0
+psutil
