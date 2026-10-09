@@ -2,23 +2,34 @@
 
 Reads the PR from the environment the workflow sets, prints a Markdown report,
 and writes it to the path given as the first argument.
+
+Reading time grows roughly with the square of the input's length on CPU, so a
+large diff is split into pieces that are asked separately and then combined.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-from strands_decider.infer import load_engine
-from strands_decider.schema import SystemOneRequest
+import psutil
+from strands_decider.infer import SystemOneEngine, load_engine
+from strands_decider.schema import ChoiceAnswer, NoulAnswer, SystemOneRequest
 
 HERE = Path(__file__).parent
-MAX_DIFF_CHARS = 60_000
 CONFIDENT = 0.9
+# Characters per piece, header included (~1,200 tokens), and the most pieces read per PR.
+CHUNK_CHARS = int(os.environ.get("DECIDER_CHUNK_CHARS", "4500"))
+MAX_CHUNKS = int(os.environ.get("DECIDER_MAX_CHUNKS", "8"))
+# Unchanged lines shown around each change; fewer lines, fewer tokens.
+CONTEXT = int(os.environ.get("DECIDER_CONTEXT", "1"))
+# The fp32 torso needs ~7 GiB; below this much RAM keep it in bf16 instead.
+FP32_MIN_RAM_GIB = 12
 
 # Machine-written files: their diffs are long, cost the most to read, and say
 # little about the change. They still appear in the file list.
@@ -33,37 +44,86 @@ def git(*args: str) -> str:
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
 
 
-def pr_state(base: str, head: str) -> str:
+def log(message: str) -> None:
+    print(f"decider: {message}", file=sys.stderr, flush=True)
+
+
+def gib(n: float) -> str:
+    return f"{n / 2**30:.1f} GiB"
+
+
+def log_machine(stage: str) -> None:
+    mem, swap = psutil.virtual_memory(), psutil.swap_memory()
+    log(f"[{stage}] RAM {gib(mem.available)} free of {gib(mem.total)}, swap used {gib(swap.used)}")
+
+
+def split_pieces(diff: str, size: int) -> list[str]:
+    """Pack whole files into pieces of about `size` characters; split big files by hunk."""
+    parts: list[str] = []
+    for file_diff in re.split(r"(?m)^(?=diff --git )", diff):
+        if not file_diff:
+            continue
+        if len(file_diff) <= size:
+            parts.append(file_diff)
+            continue
+        header, *hunks = re.split(r"(?m)^(?=@@ )", file_diff)
+        for hunk in hunks or [""]:
+            text = header + hunk
+            parts += [text[i:i + size] for i in range(0, len(text), size)]
+
+    pieces: list[str] = []
+    for part in parts:
+        if pieces and len(pieces[-1]) + len(part) <= size:
+            pieces[-1] += part
+        else:
+            pieces.append(part)
+    return pieces
+
+
+def pr_states(base: str, head: str) -> tuple[list[str], int]:
+    """One state per piece of the diff, and how many pieces were left unread."""
     rng = f"{base}...{head}"
     excludes = [f":(exclude,glob)**/{pattern}" for pattern in SKIP_DIFF]
-    diff = git("diff", rng, "--", ".", *excludes)
-    if len(diff) > MAX_DIFF_CHARS:
-        diff = diff[:MAX_DIFF_CHARS] + "\n[diff truncated]\n"
-    return "\n\n".join(
-        [
-            f"Title: {os.environ.get('PR_TITLE', '')}",
-            f"Description:\n{os.environ.get('PR_BODY') or '(none)'}",
-            f"Files changed:\n{git('diff', '--stat', rng)}",
-            f"Diff:\n{diff}",
-        ]
-    )
+    diff = git("diff", f"-U{CONTEXT}", rng, "--", ".", *excludes)
+    # Every piece repeats this header, so keep it short.
+    header = "\n\n".join([
+        f"Title: {os.environ.get('PR_TITLE', '')}",
+        f"Description:\n{(os.environ.get('PR_BODY') or '(none)')[:800]}",
+        f"Files changed:\n{git('diff', '--stat=80', rng)[:1200]}",
+    ])
+    pieces = split_pieces(diff, max(1500, CHUNK_CHARS - len(header))) or ["(no textual changes)"]
+    unread = max(0, len(pieces) - MAX_CHUNKS)
+    pieces = pieces[:MAX_CHUNKS]
+    states = [
+        f"{header}\n\nDiff{f' (part {i} of {len(pieces)})' if len(pieces) > 1 else ''}:\n{piece}"
+        for i, piece in enumerate(pieces, 1)
+    ]
+    return states, unread
+
+
+def combine(answers: list, weights: list[int]):
+    """One answer from the answers to each piece of the diff."""
+    first = answers[0]
+    if len(answers) == 1:
+        return first
+    if first.type == "noul":
+        # "Does this PR ...?" is yes if any piece of it does.
+        return NoulAnswer(noul=max(a.noul for a in answers))
+    if first.type == "choice":
+        total = sum(weights)
+        probs = {k: sum(a.probabilities[k] * w for a, w in zip(answers, weights)) / total
+                 for k in first.probabilities}
+        choice = max(probs, key=probs.get)
+        return ChoiceAnswer(choice=choice, probabilities=probs, confidence=probs[choice])
+    # Score: the riskiest piece decides.
+    return max(answers, key=lambda a: a.score)
 
 
 def flag(confidence: float) -> str:
     return "" if confidence >= CONFIDENT else " ⚠️ low confidence"
 
 
-def log(message: str) -> None:
-    print(f"decider: {message}", file=sys.stderr, flush=True)
-
-
-def timed(fn, *args):
-    start = time.perf_counter()
-    result = fn(*args)
-    return result, (time.perf_counter() - start) * 1000
-
-
-def report(questions: dict, answers: dict, model: str, timing: str) -> str:
+def report(questions: dict, answers: dict, model: str, footer: str) -> str:
     lines = ["<!-- strands-decider -->", "## Strands Decider", "", "| Question | Answer |", "| --- | --- |"]
     for name, ans in answers.items():
         question = questions[name]["instructions"]
@@ -79,40 +139,64 @@ def report(questions: dict, answers: dict, model: str, timing: str) -> str:
         lines.append(f"| {question} | {text} |")
     lines += [
         "",
-        f"<sub>Model: `{model}`. {timing}. "
+        f"<sub>Model: `{model}`. {footer}. "
         f"Answers below {CONFIDENT} confidence need a human look.</sub>",
     ]
     return "\n".join(lines) + "\n"
 
 
+def choose_dtype() -> str:
+    dtype = os.environ.get("DECIDER_DTYPE", "auto")
+    if dtype == "auto":
+        dtype = "fp32" if psutil.virtual_memory().total >= FP32_MIN_RAM_GIB * 2**30 else "bf16"
+    if dtype == "bf16":
+        # The engine upcasts the torso to fp32 on CPU, which is faster per step
+        # but needs ~7 GiB; on a small runner that swaps, so keep bf16.
+        SystemOneEngine._upcast_torso_for_cpu = lambda self: None
+    return dtype
+
+
 def main() -> None:
+    import torch
+
     model = os.environ["DECIDER_MODEL"]
     questions = json.loads((HERE / "questions.json").read_text())
-    request = SystemOneRequest.model_validate(
-        {"state": pr_state(os.environ["BASE_SHA"], os.environ["HEAD_SHA"]), "questions": questions}
-    )
-    log(f"state is {len(request.state):,} chars; asking {len(questions)} questions")
-
+    states, unread = pr_states(os.environ["BASE_SHA"], os.environ["HEAD_SHA"])
     device = os.environ.get("DECIDER_DEVICE", "cpu")
-    engine, load_ms = timed(lambda: load_engine(model, device=device))
-    log(f"model loaded in {load_ms:,.0f} ms")
+    dtype = choose_dtype() if device == "cpu" else "model default"
 
-    response, ask_ms = timed(engine.evaluate, request)
-    tokens = response.usage.input_tokens
-    log(f"all questions answered in {ask_ms:,.0f} ms ({tokens:,} input tokens, "
-        f"{ask_ms / len(questions):,.0f} ms per question on average)")
-    log("raw answers: " + response.model_dump_json())
+    log(f"{psutil.cpu_count(logical=False)} cores ({psutil.cpu_count()} logical), "
+        f"torch threads {torch.get_num_threads()}, dtype {dtype}")
+    log(f"diff split into {len(states)} piece(s) of up to ~{CHUNK_CHARS:,} chars"
+        + (f"; {unread} more piece(s) not read" if unread else ""))
+    log_machine("start")
 
-    # Each question again on its own, with the state already cached, to show
-    # what one more question costs.
-    if os.environ.get("DECIDER_TIME_EACH") == "1":
-        for name, question in request.questions.items():
-            single = SystemOneRequest(state=request.state, questions={name: question})
-            _, ms = timed(engine.evaluate, single)
-            log(f"  {name}: {ms:,.0f} ms on its own")
+    start = time.perf_counter()
+    engine = load_engine(model, device=device)
+    log(f"model loaded in {time.perf_counter() - start:,.1f} s")
+    log_machine("loaded")
 
-    timing = f"{len(questions)} questions in {ask_ms / 1000:.1f} s on {device} ({tokens:,} tokens)"
-    markdown = report(questions, response.answers, model, timing)
+    per_piece: list[dict] = []
+    tokens = 0
+    start = time.perf_counter()
+    for i, state in enumerate(states, 1):
+        t = time.perf_counter()
+        response = engine.evaluate(SystemOneRequest.model_validate({"state": state, "questions": questions}))
+        tokens += response.usage.input_tokens
+        per_piece.append(response.answers)
+        log(f"piece {i}/{len(states)}: {len(state):,} chars, {response.usage.input_tokens:,} tokens, "
+            f"{time.perf_counter() - t:,.1f} s")
+        log(f"  raw answers: {response.model_dump_json(include={'answers'})}")
+    ask_s = time.perf_counter() - start
+    log(f"all answered in {ask_s:,.1f} s")
+    log_machine("answered")
+
+    weights = [len(s) for s in states]
+    answers = {name: combine([p[name] for p in per_piece], weights) for name in questions}
+    footer = (f"{len(questions)} questions in {ask_s:.1f} s on {device} ({tokens:,} tokens"
+              + (f", {len(states)} pieces" if len(states) > 1 else "") + ")"
+              + (f"; the last {unread} piece(s) of the diff were not read" if unread else ""))
+    markdown = report(questions, answers, model, footer)
     print(markdown)
     Path(sys.argv[1]).write_text(markdown)
 
