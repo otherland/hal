@@ -1,0 +1,50 @@
+name: Benchmark decider
+
+# One-off measurements of ask.py; push to the bench-decider branch.
+on:
+  push:
+    branches: [bench-decider]
+
+permissions:
+  contents: read
+
+env:
+  DECIDER_MODEL: StrandsAgents/strands-decider-2B-qwen3.5-v1-2610
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: .github/decider/requirements.txt
+      - run: |
+          uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --system -r .github/decider/requirements.txt
+      - name: Download model
+        run: uvx --from huggingface_hub hf download "$DECIDER_MODEL" > /dev/null
+      - name: Benchmark
+        env:
+          PR_TITLE: Harden command matching
+          # A ~12k-character TypeScript change
+          BASE_SHA: 04fad53^
+          HEAD_SHA: 04fad53
+        run: |
+          run() {
+            echo "=== $1"
+            shift
+            env "$@" python .github/decider/ask.py "$RUNNER_TEMP/out.md" 2>&1 \
+              | grep -E '^decider: (.*cores|diff split|\[|piece [0-9]|model loaded|all answered)'
+          }
+          run "A: one piece, fp32" DECIDER_CHUNK_CHARS=1000000 DECIDER_DTYPE=fp32
+          run "B: pieces, fp32" DECIDER_DTYPE=fp32
+          run "C: pieces, bf16" DECIDER_DTYPE=bf16
+          run "D: pieces, fp32, 4 threads" DECIDER_DTYPE=fp32 OMP_NUM_THREADS=4
