@@ -3,8 +3,10 @@
 Reads the PR from the environment the workflow sets, prints a Markdown report,
 and writes it to the path given as the first argument.
 
-Reading time grows roughly with the square of the input's length on CPU, so a
-large diff is split into pieces that are asked separately and then combined.
+Set DECIDER_CHUNK_CHARS to split a large diff into pieces that are asked
+separately and combined. Off by default: on a GitHub CPU runner each piece
+repeats the header and questions, and the time per token is about the same
+past ~2,000 tokens, so splitting measured slower (100 s vs 75 s on a 12k diff).
 """
 
 from __future__ import annotations
@@ -23,13 +25,12 @@ from strands_decider.schema import ChoiceAnswer, NoulAnswer, SystemOneRequest
 
 HERE = Path(__file__).parent
 CONFIDENT = 0.9
-# Characters per piece, header included (~1,200 tokens), and the most pieces read per PR.
-CHUNK_CHARS = int(os.environ.get("DECIDER_CHUNK_CHARS", "4500"))
-MAX_CHUNKS = int(os.environ.get("DECIDER_MAX_CHUNKS", "8"))
+# Characters per piece, header included, and the most pieces read per PR.
+# The default reads one piece of up to 60k characters.
+CHUNK_CHARS = int(os.environ.get("DECIDER_CHUNK_CHARS", "60000"))
+MAX_CHUNKS = int(os.environ.get("DECIDER_MAX_CHUNKS", "1" if CHUNK_CHARS >= 60000 else "8"))
 # Unchanged lines shown around each change; fewer lines, fewer tokens.
 CONTEXT = int(os.environ.get("DECIDER_CONTEXT", "1"))
-# The fp32 torso needs ~7 GiB; below this much RAM keep it in bf16 instead.
-FP32_MIN_RAM_GIB = 12
 
 # Machine-written files: their diffs are long, cost the most to read, and say
 # little about the change. They still appear in the file list.
@@ -146,12 +147,11 @@ def report(questions: dict, answers: dict, model: str, footer: str) -> str:
 
 
 def choose_dtype() -> str:
-    dtype = os.environ.get("DECIDER_DTYPE", "auto")
-    if dtype == "auto":
-        dtype = "fp32" if psutil.virtual_memory().total >= FP32_MIN_RAM_GIB * 2**30 else "bf16"
+    dtype = os.environ.get("DECIDER_DTYPE", "fp32")
     if dtype == "bf16":
-        # The engine upcasts the torso to fp32 on CPU, which is faster per step
-        # but needs ~7 GiB; on a small runner that swaps, so keep bf16.
+        # The engine upcasts the torso to fp32 on CPU (~7 GiB). Keeping bf16 halves
+        # that, but measured 6.7x slower on a GitHub runner's AMD EPYC (no native
+        # bf16), so only use it if fp32 would not fit in memory at all.
         SystemOneEngine._upcast_torso_for_cpu = lambda self: None
     return dtype
 
@@ -167,7 +167,7 @@ def main() -> None:
 
     log(f"{psutil.cpu_count(logical=False)} cores ({psutil.cpu_count()} logical), "
         f"torch threads {torch.get_num_threads()}, dtype {dtype}")
-    log(f"diff split into {len(states)} piece(s) of up to ~{CHUNK_CHARS:,} chars"
+    log(f"diff in {len(states)} piece(s) of up to ~{CHUNK_CHARS:,} chars"
         + (f"; {unread} more piece(s) not read" if unread else ""))
     log_machine("start")
 
