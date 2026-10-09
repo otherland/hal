@@ -2,7 +2,7 @@ name: PR decider
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -23,12 +23,38 @@ env:
 
 jobs:
   ask:
+    # Skip drafts, and edits that change neither the title nor the description
+    # (the only parts of an edit the decider reads).
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        !github.event.pull_request.draft && (
+          github.event.action != 'edited' ||
+          github.event.changes.title || github.event.changes.body))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: .github/decider/requirements.txt
+
+      # Install in the background while the next steps fetch the PR and restore
+      # the 3.7 GB model; "Finish installing" waits for it.
+      - name: Start installing strands-decider
+        run: |
+          (
+            uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu &&
+            uv pip install --system -r .github/decider/requirements.txt
+            echo $? > "$RUNNER_TEMP/install.rc"
+          ) > "$RUNNER_TEMP/install.log" 2>&1 &
 
       - name: Look up the PR
         id: pr
@@ -52,26 +78,17 @@ jobs:
       - name: Fetch the PR head
         run: git fetch --no-tags origin "refs/pull/${{ steps.pr.outputs.number }}/head"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: .github/decider/requirements.txt
-
-      # CPU-only torch keeps the install small; strands-decider then reuses it.
-      - name: Install strands-decider
-        run: |
-          uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
-          uv pip install --system -r .github/decider/requirements.txt
-
       - name: Cache model
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: hf-${{ env.DECIDER_MODEL }}
+
+      - name: Finish installing strands-decider
+        run: |
+          while [ ! -f "$RUNNER_TEMP/install.rc" ]; do sleep 1; done
+          cat "$RUNNER_TEMP/install.log"
+          exit "$(cat "$RUNNER_TEMP/install.rc")"
 
       - name: Ask the decider about this PR
         env:
