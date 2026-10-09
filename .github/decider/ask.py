@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from strands_decider.infer import load_engine
@@ -43,7 +44,17 @@ def flag(confidence: float) -> str:
     return "" if confidence >= CONFIDENT else " ⚠️ low confidence"
 
 
-def report(questions: dict, answers: dict, model: str) -> str:
+def log(message: str) -> None:
+    print(f"decider: {message}", file=sys.stderr, flush=True)
+
+
+def timed(fn, *args):
+    start = time.perf_counter()
+    result = fn(*args)
+    return result, (time.perf_counter() - start) * 1000
+
+
+def report(questions: dict, answers: dict, model: str, timing: str) -> str:
     lines = ["<!-- strands-decider -->", "## Strands Decider", "", "| Question | Answer |", "| --- | --- |"]
     for name, ans in answers.items():
         question = questions[name]["instructions"]
@@ -57,7 +68,11 @@ def report(questions: dict, answers: dict, model: str) -> str:
             level = ans.legend[max(ans.probabilities, key=ans.probabilities.get)]
             text = f"**{level}** (score {ans.score:.2f}, {ans.confidence:.2f}){flag(ans.confidence)}"
         lines.append(f"| {question} | {text} |")
-    lines += ["", f"<sub>Model: `{model}`. Answers below {CONFIDENT} confidence need a human look.</sub>"]
+    lines += [
+        "",
+        f"<sub>Model: `{model}`. {timing}. "
+        f"Answers below {CONFIDENT} confidence need a human look.</sub>",
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -67,9 +82,28 @@ def main() -> None:
     request = SystemOneRequest.model_validate(
         {"state": pr_state(os.environ["BASE_SHA"], os.environ["HEAD_SHA"]), "questions": questions}
     )
-    engine = load_engine(model, device=os.environ.get("DECIDER_DEVICE", "cpu"))
-    response = engine.evaluate(request)
-    markdown = report(questions, response.answers, model)
+    log(f"state is {len(request.state):,} chars; asking {len(questions)} questions")
+
+    device = os.environ.get("DECIDER_DEVICE", "cpu")
+    engine, load_ms = timed(lambda: load_engine(model, device=device))
+    log(f"model loaded in {load_ms:,.0f} ms")
+
+    response, ask_ms = timed(engine.evaluate, request)
+    tokens = response.usage.input_tokens
+    log(f"all questions answered in {ask_ms:,.0f} ms ({tokens:,} input tokens, "
+        f"{ask_ms / len(questions):,.0f} ms per question on average)")
+    log("raw answers: " + response.model_dump_json())
+
+    # Each question again on its own, with the state already cached, to show
+    # what one more question costs.
+    if os.environ.get("DECIDER_TIME_EACH") == "1":
+        for name, question in request.questions.items():
+            single = SystemOneRequest(state=request.state, questions={name: question})
+            _, ms = timed(engine.evaluate, single)
+            log(f"  {name}: {ms:,.0f} ms on its own")
+
+    timing = f"{len(questions)} questions in {ask_ms / 1000:.1f} s on {device} ({tokens:,} tokens)"
+    markdown = report(questions, response.answers, model, timing)
     print(markdown)
     Path(sys.argv[1]).write_text(markdown)
 

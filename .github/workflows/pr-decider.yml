@@ -76,6 +76,7 @@ jobs:
           PR_BODY: ${{ steps.pr.outputs.body }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          DECIDER_TIME_EACH: "1"
         run: |
           python .github/decider/ask.py "$RUNNER_TEMP/decider.md"
           cat "$RUNNER_TEMP/decider.md" >> "$GITHUB_STEP_SUMMARY"
