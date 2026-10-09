@@ -53,7 +53,8 @@ def report(questions: dict, answers: dict, model: str) -> str:
         elif ans.type == "choice":
             text = f"**{ans.choice}** ({ans.confidence:.2f}){flag(ans.confidence)}"
         else:
-            level = max(ans.probabilities, key=ans.probabilities.get)
+            # probabilities are keyed by level index; legend maps index -> label
+            level = ans.legend[max(ans.probabilities, key=ans.probabilities.get)]
             text = f"**{level}** (score {ans.score:.2f}, {ans.confidence:.2f}){flag(ans.confidence)}"
         lines.append(f"| {question} | {text} |")
     lines += ["", f"<sub>Model: `{model}`. Answers below {CONFIDENT} confidence need a human look.</sub>"]
